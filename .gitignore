@@ -1,0 +1,35 @@
+# Dependencias
+node_modules/
+
+# Builds
+dist/
+build/
+.angular/
+
+# Entornos y secretos
+.env
+.env.*
+!.env.example
+
+# Certificados y claves de ARCA — NUNCA se versionan
+*.crt
+*.key
+*.pem
+
+# Backups locales (dumps y saldos de cta cte)
+backups/
+*.sql
+*.csv
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Coverage / tests
+coverage/
