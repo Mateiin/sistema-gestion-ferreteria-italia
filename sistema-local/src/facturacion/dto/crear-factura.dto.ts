@@ -15,6 +15,13 @@ export enum TipoFactura {
   B = 'B', // a consumidor final / monotributista
 }
 
+export enum CondicionIvaReceptorDto {
+  RESPONSABLE_INSCRIPTO = 'RESPONSABLE_INSCRIPTO',
+  MONOTRIBUTO = 'MONOTRIBUTO',
+  EXENTO = 'EXENTO',
+  CONSUMIDOR_FINAL = 'CONSUMIDOR_FINAL',
+}
+
 export class ItemFacturaDto {
   @IsString()
   descripcion: string;
@@ -23,10 +30,15 @@ export class ItemFacturaDto {
   @Min(0)
   cantidad: number;
 
-  /** Precio unitario SIN IVA (neto). Ver nota sobre IVA en el service. */
+  /** Precio unitario SIN IVA (neto) */
   @IsNumber()
   @Min(0)
   precioUnitario: number;
+
+  /** Alícuota de IVA en %. Opcional: si no se envía, se asume 21. */
+  @IsOptional()
+  @IsNumber()
+  ivaPorcentaje?: number;
 }
 
 export class ReceptorDto {
@@ -37,6 +49,11 @@ export class ReceptorDto {
   /** 0 si es consumidor final sin identificar */
   @IsInt()
   docNro: number;
+
+  /** Requerido para Factura A. Para B se puede omitir. */
+  @IsOptional()
+  @IsEnum(CondicionIvaReceptorDto)
+  condicionIva?: CondicionIvaReceptorDto;
 }
 
 export class CrearFacturaDto {

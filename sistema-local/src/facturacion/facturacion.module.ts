@@ -4,7 +4,7 @@ import { Comprobante } from './entities/comprobante.entity';
 import { FacturacionService } from './facturacion.service';
 import { FacturacionController } from './facturacion.controller';
 import { cargarEmisorDesdeEnv } from './config/emisor';
-import { crearAfipSdkProvider } from './providers/afipsdk.provider';
+import { crearArcaSdkProvider } from './providers/arca-sdk.provider';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Comprobante])],
@@ -18,10 +18,10 @@ import { crearAfipSdkProvider } from './providers/afipsdk.provider';
       useFactory: () => cargarEmisorDesdeEnv(),
     },
     {
-      // Acá elegís el adapter concreto. Cambiar de afipsdk a otra librería
-      // es cambiar SOLO esta línea.
+      // Acá elegís el adapter concreto. Cambiar de librería es cambiar SOLO
+      // esta línea (por ej. otro SDK, SOAP directo, etc.).
       provide: 'ARCA_PROVIDER_FACTORY',
-      useValue: crearAfipSdkProvider,
+      useValue: crearArcaSdkProvider,
     },
   ],
 })

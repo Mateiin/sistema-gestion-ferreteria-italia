@@ -8,6 +8,7 @@
  * variables de entorno / secrets. El .key (clave privada) es secreto y nunca
  * se versiona en git.
  */
+import * as fs from 'fs';
 
 export type Ambiente = 'homologacion' | 'produccion';
 export type CondicionIva = 'RI' | 'MONOTRIBUTO';
@@ -47,7 +48,7 @@ export function cargarEmisorDesdeEnv(): Emisor {
     condicionIva: (process.env.EMISOR_CONDICION_IVA as CondicionIva) ?? 'RI',
     ambiente: (process.env.ARCA_AMBIENTE as Ambiente) ?? 'homologacion',
     // Los certificados se pasan como contenido PEM (podés leerlos de archivo o de un secret manager)
-    cert: requerido('ARCA_CERT'),
-    key: requerido('ARCA_KEY'),
+    cert: fs.readFileSync(requerido('ARCA_CERT_PATH'), 'utf8'),
+    key: fs.readFileSync(requerido('ARCA_KEY_PATH'), 'utf8'),
   };
 }

@@ -3,39 +3,49 @@ import { Emisor } from '../config/emisor';
 /**
  * PORT (patrón puertos y adaptadores).
  *
- * El resto del sistema depende de ESTA interfaz, no de una librería concreta.
- * Hoy la implementa AfipSdkProvider (usando @afipsdk/afip.js), pero mañana podés
- * escribir otro adapter (facturajs, SOAP directo, etc.) sin tocar el service ni
- * el controller. Eso te sirve para el CV y para no quedar atado a un proveedor.
+ * Expresa la INTENCIÓN DE DOMINIO: "emití un comprobante con estos ítems para
+ * este receptor". No sabe nada de la librería concreta ni de cómo se calcula el
+ * IVA: de eso se ocupa el adapter / el SDK. El service y el controller dependen
+ * de esta interfaz, así que cambiar de librería es escribir otro adapter.
  */
 
-/** Datos ya normalizados para pedir el CAE de un comprobante */
+export type TipoFacturaDominio = 'A' | 'B';
+
+export interface ItemComprobante {
+  /** Importe neto de la línea (cantidad * precio unitario, SIN IVA) */
+  neto: number;
+  /** Alícuota de IVA en porcentaje: 21, 10.5, 27, 0. Default de negocio: 21 */
+  ivaPorcentaje: number;
+}
+
+export type CondicionIvaReceptor =
+  | 'RESPONSABLE_INSCRIPTO'
+  | 'MONOTRIBUTO'
+  | 'EXENTO'
+  | 'CONSUMIDOR_FINAL';
+
 export interface DatosComprobante {
-  /** Código de comprobante ARCA. Ej: 1=Factura A, 6=Factura B, 11=Factura C */
-  tipoComprobante: number;
-  /** Tipo de documento del receptor. 80=CUIT, 96=DNI, 99=Consumidor Final */
+  tipoFactura: TipoFacturaDominio;
+  /** 80=CUIT, 96=DNI, 99=Consumidor Final */
   docTipoReceptor: number;
-  /** Nº de documento del receptor. 0 si es consumidor final sin identificar */
   docNroReceptor: number;
-  fecha: Date;
-  importeNeto: number;
-  importeIva: number;
-  importeTotal: number;
-  /** Alícuota de IVA de ARCA. 5=21%, 4=10.5%, 6=27%, 3=0% */
-  alicuotaIva: number;
+  /** Requerido para Factura A (condición de IVA del receptor) */
+  condicionIvaReceptor?: CondicionIvaReceptor;
+  items: ItemComprobante[];
 }
 
 export interface ResultadoCae {
   numeroComprobante: number;
   cae: string;
-  vencimientoCae: string; // formato AAAAMMDD que devuelve ARCA
+  vencimientoCae: string;
+  /** Totales tal como los autorizó ARCA (fuente de verdad para persistir) */
+  importeNeto: number;
+  importeIva: number;
+  importeTotal: number;
 }
 
 export interface ArcaProvider {
-  /** Devuelve el número del último comprobante autorizado para ese punto de venta y tipo */
-  ultimoComprobante(tipoComprobante: number): Promise<number>;
-
-  /** Solicita el CAE a ARCA y devuelve el comprobante autorizado */
+  ultimoComprobante(tipoFactura: TipoFacturaDominio): Promise<number>;
   solicitarCae(datos: DatosComprobante): Promise<ResultadoCae>;
 }
 

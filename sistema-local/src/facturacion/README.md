@@ -9,7 +9,7 @@ Módulo mínimo y funcional para emitir facturas electrónicas contra ARCA, dise
 facturacion/
 ├── config/emisor.ts                      Datos fiscales por comercio (multi-tenant)
 ├── interfaces/arca-provider.interface.ts PORT: de esto depende el resto del sistema
-├── providers/afipsdk.provider.ts         ADAPTER con @afipsdk/afip.js (intercambiable)
+├── providers/arca-sdk.provider.ts        ADAPTER con @arcasdk/core (intercambiable)
 ├── entities/comprobante.entity.ts        Persistencia del comprobante + CAE
 ├── dto/crear-factura.dto.ts              Entrada de la API
 ├── facturacion.service.ts                Cálculo de totales + CAE + guardado
@@ -18,18 +18,25 @@ facturacion/
 ```
 
 La gracia del diseño: el service y el controller dependen del **port**
-(`ArcaProvider`), no de la librería. Cambiar afip.js por facturajs o SOAP directo
-es escribir otro adapter y cambiar una línea en el módulo. El resto no se toca.
+(`ArcaProvider`), no de la librería. Cambiar `@arcasdk/core` por otro SDK o por
+SOAP directo es escribir otro adapter y cambiar una línea en el módulo. El resto
+no se toca.
 
 ## Instalación
 
 ```bash
-npm install @afipsdk/afip.js
+npm install @arcasdk/core
 npm install class-validator class-transformer   # si no los tenés ya
 ```
 
 Registrá `FacturacionModule` en tu `AppModule` y asegurate de tener configurado
 TypeORM con PostgreSQL.
+
+> **Nota sobre la dependencia:** `@arcasdk/core` habla DIRECTO con los web
+> services oficiales de ARCA (WSAA + WSFEv1), sin intermediarios ni token de
+> terceros. Es de un mantenedor único (`ralcorta`, repo público en GitHub), así
+> que antes de actualizar de versión conviene revisar el changelog: este
+> paquete maneja el certificado y la clave privada del emisor.
 
 ## Variables de entorno
 
@@ -39,19 +46,18 @@ EMISOR_CUIT=20123456783
 EMISOR_PUNTO_VENTA=4              # el que creaste en ARCA, exclusivo del sistema
 EMISOR_CONDICION_IVA=RI
 ARCA_AMBIENTE=homologacion        # empezá SIEMPRE en homologacion
-ARCA_CERT="-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"
-ARCA_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
+ARCA_CERT_PATH=./certs/ferreteria.crt
+ARCA_KEY_PATH=./certs/ferreteria.key
 ```
 
-> La `ARCA_KEY` es secreta: nunca la subas a git. Usá `.env` (en `.gitignore`) o un
-> secret manager.
+> La clave privada (`ARCA_KEY_PATH`) apunta a un archivo secreto: nunca se sube a
+> git. Usá `.env` (en `.gitignore`) o un secret manager.
 
 ## Empezá por homologación
 
 Mientras desarrollás, `ARCA_AMBIENTE=homologacion` para no emitir facturas reales.
 Recién cuando esté probado, pasás a `produccion` con el certificado que trajiste de
-la ferretería. afip.js incluso permite un modo de desarrollo con un CUIT de prueba
-sin certificado, útil para el primer arranque.
+la ferretería.
 
 ## Códigos de ARCA (referencia rápida)
 
@@ -79,6 +85,14 @@ sin certificado, útil para el primer arranque.
 | 6 | 27% |
 | 3 | 0% |
 
+**Condición de IVA del receptor (`CondicionIVAReceptorId`, RG 5616/2024)**
+| Código | Condición |
+|--------|-----------|
+| 1 | Responsable Inscripto |
+| 4 | Exento |
+| 5 | Consumidor Final |
+| 6 | Monotributo |
+
 ## Lo que falta para producción (TODOs conscientes)
 
 Esto es un esqueleto, no está terminado. Antes de usarlo en serio:
@@ -87,8 +101,9 @@ Esto es un esqueleto, no está terminado. Antes de usarlo en serio:
   (los servidores de ARCA a veces demoran; conviene reintentar antes de fallar).
 - **Notas de crédito** para anulaciones (una factura con CAE no se borra: se anula
   con una NC).
-- **Definir cómo cargás los precios**: el service asume precio neto (sin IVA) y suma
-  21%. Si en el mostrador se cargan precios con IVA incluido, invertí el cálculo.
+- **Definir cómo cargás los precios**: el service asume precio neto (sin IVA) por
+  ítem. Si en el mostrador se cargan precios con IVA incluido, invertí el cálculo
+  antes de llamar al service.
 - **Consultar el padrón** para validar el CUIT del receptor antes de emitir factura A.
 - **Guardar/mostrar el comprobante** (PDF con QR) para imprimirlo o mandarlo por WhatsApp.
 - **Multi-tenant real**: hoy el emisor es único (desde env). Para vender el sistema,
