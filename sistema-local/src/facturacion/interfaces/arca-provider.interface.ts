@@ -3,26 +3,28 @@ import { Emisor } from '../config/emisor';
 /**
  * PORT (patrón puertos y adaptadores).
  *
- * Expresa la INTENCIÓN DE DOMINIO: "emití un comprobante con estos ítems para
- * este receptor". No sabe nada de la librería concreta ni de cómo se calcula el
- * IVA: de eso se ocupa el adapter / el SDK. El service y el controller dependen
- * de esta interfaz, así que cambiar de librería es escribir otro adapter.
+ * Expresa la INTENCIÓN DE DOMINIO: "emití este comprobante, ya calculado, para
+ * este receptor". El cálculo (agrupar por alícuota, totalizar) es responsabilidad
+ * del dominio (`Comprobante`, en `entities/comprobante.entity.ts`), no del
+ * adapter: el adapter solo traduce esta forma a la que espera el SDK. El Gestor
+ * y el controller dependen de esta interfaz, así que cambiar de librería es
+ * escribir otro adapter.
  */
 
 export type TipoFacturaDominio = 'A' | 'B';
-
-export interface ItemComprobante {
-  /** Importe neto de la línea (cantidad * precio unitario, SIN IVA) */
-  neto: number;
-  /** Alícuota de IVA en porcentaje: 21, 10.5, 27, 0. Default de negocio: 21 */
-  ivaPorcentaje: number;
-}
 
 export type CondicionIvaReceptor =
   | 'RESPONSABLE_INSCRIPTO'
   | 'MONOTRIBUTO'
   | 'EXENTO'
   | 'CONSUMIDOR_FINAL';
+
+/** Importes ya agrupados por alícuota (lo calcula `Comprobante.calcularDesglose`) */
+export interface AlicuotaDesglose {
+  alicuotaPorcentaje: number;
+  neto: number;
+  iva: number;
+}
 
 export interface DatosComprobante {
   tipoFactura: TipoFacturaDominio;
@@ -31,22 +33,34 @@ export interface DatosComprobante {
   docNroReceptor: number;
   /** Requerido para Factura A (condición de IVA del receptor) */
   condicionIvaReceptor?: CondicionIvaReceptor;
-  items: ItemComprobante[];
+  ivaDesglose: AlicuotaDesglose[];
+  importeNeto: number;
+  importeIva: number;
+  importeTotal: number;
+}
+
+/** Comprobante ya emitido al que hace referencia una Nota de Crédito */
+export interface ComprobanteAsociado {
+  /** Código ARCA del comprobante original: 1=Factura A, 6=Factura B */
+  tipoComprobante: number;
+  puntoVenta: number;
+  numero: number;
+}
+
+export interface DatosNotaCredito extends DatosComprobante {
+  comprobanteAsociado: ComprobanteAsociado;
 }
 
 export interface ResultadoCae {
   numeroComprobante: number;
   cae: string;
   vencimientoCae: string;
-  /** Totales tal como los autorizó ARCA (fuente de verdad para persistir) */
-  importeNeto: number;
-  importeIva: number;
-  importeTotal: number;
 }
 
 export interface ArcaProvider {
   ultimoComprobante(tipoFactura: TipoFacturaDominio): Promise<number>;
   solicitarCae(datos: DatosComprobante): Promise<ResultadoCae>;
+  solicitarNotaCredito(datos: DatosNotaCredito): Promise<ResultadoCae>;
 }
 
 /** Factory: dado un emisor, devuelve el provider configurado para ese emisor. */

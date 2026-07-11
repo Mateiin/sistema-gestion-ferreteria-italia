@@ -4,6 +4,7 @@ import {
   ArcaProvider,
   CondicionIvaReceptor,
   DatosComprobante,
+  DatosNotaCredito,
   ResultadoCae,
   TipoFacturaDominio,
 } from '../interfaces/arca-provider.interface';
@@ -14,15 +15,22 @@ import {
  * Habla DIRECTO con los web services oficiales de ARCA (WSAA + WSFEv1): sin
  * intermediarios, sin token de terceros. El SDK maneja la autenticación, el
  * cacheo del Ticket de Acceso y el armado del SOAP; acá solo traducimos entre
- * el dominio (ArcaProvider) y la forma que espera WSFEv1 (IVoucher).
+ * el dominio (ArcaProvider) y la forma que espera WSFEv1 (IVoucher). No hace
+ * ninguna cuenta de negocio: los montos ya vienen calculados por `Comprobante`
+ * (Information Expert vive en el dominio, no en la infraestructura).
  *
- * Toda la traducción entre el dominio y la librería vive acá. Si algún día
- * cambiás de SDK, reescribís SOLO este archivo.
+ * Si algún día cambiás de SDK, reescribís SOLO este archivo.
  */
 
 const CBTE_TIPO: Record<TipoFacturaDominio, number> = {
   A: 1,
   B: 6,
+};
+
+/** Notas de crédito: siguen la misma letra que la factura que anulan */
+const CBTE_TIPO_NOTA_CREDITO: Record<TipoFacturaDominio, number> = {
+  A: 3,
+  B: 8,
 };
 
 /**
@@ -74,56 +82,57 @@ export class ArcaSdkProvider implements ArcaProvider {
   }
 
   async solicitarCae(datos: DatosComprobante): Promise<ResultadoCae> {
-    // ARCA pide el IVA discriminado por alícuota (no por línea de venta), así
-    // que agrupamos los ítems por alícuota antes de armar el comprobante.
-    const porAlicuota = new Map<number, { neto: number; iva: number }>();
-    for (const item of datos.items) {
-      const acumulado = porAlicuota.get(item.ivaPorcentaje) ?? {
-        neto: 0,
-        iva: 0,
-      };
-      acumulado.neto = this.redondear(acumulado.neto + item.neto);
-      acumulado.iva = this.redondear(
-        acumulado.iva + item.neto * (item.ivaPorcentaje / 100),
-      );
-      porAlicuota.set(item.ivaPorcentaje, acumulado);
-    }
+    return this.emitirComprobante(CBTE_TIPO[datos.tipoFactura], datos);
+  }
 
-    const importeNeto = this.redondear(
-      [...porAlicuota.values()].reduce((acc, v) => acc + v.neto, 0),
+  async solicitarNotaCredito(datos: DatosNotaCredito): Promise<ResultadoCae> {
+    // Una NC es un comprobante más para WSFEv1: mismo alta, salvo que lleva el
+    // CbteTipo de nota de crédito y CbtesAsoc apuntando a la factura que anula.
+    return this.emitirComprobante(
+      CBTE_TIPO_NOTA_CREDITO[datos.tipoFactura],
+      datos,
+      [
+        {
+          Tipo: datos.comprobanteAsociado.tipoComprobante,
+          PtoVta: datos.comprobanteAsociado.puntoVenta,
+          Nro: datos.comprobanteAsociado.numero,
+          Cuit: String(this.emisor.cuit),
+        },
+      ],
     );
-    const importeIva = this.redondear(
-      [...porAlicuota.values()].reduce((acc, v) => acc + v.iva, 0),
-    );
-    const importeTotal = this.redondear(importeNeto + importeIva);
+  }
 
+  private async emitirComprobante(
+    cbteTipo: number,
+    datos: DatosComprobante,
+    cbtesAsoc?: { Tipo: number; PtoVta: number; Nro: number; Cuit: string }[],
+  ): Promise<ResultadoCae> {
     const condicionIva =
-      CONDICION_IVA_RECEPTOR[
-        datos.condicionIvaReceptor ?? 'CONSUMIDOR_FINAL'
-      ];
+      CONDICION_IVA_RECEPTOR[datos.condicionIvaReceptor ?? 'CONSUMIDOR_FINAL'];
 
     const resultado = await this.arca.electronicBillingService.createNextVoucher({
       CantReg: 1,
       PtoVta: this.puntoVenta,
-      CbteTipo: CBTE_TIPO[datos.tipoFactura],
+      CbteTipo: cbteTipo,
       Concepto: 1, // 1 = Productos (una ferretería vende productos)
       DocTipo: datos.docTipoReceptor,
       DocNro: datos.docNroReceptor,
       CbteFch: this.formatearFecha(new Date()),
-      ImpTotal: importeTotal,
+      ImpTotal: datos.importeTotal,
       ImpTotConc: 0,
-      ImpNeto: importeNeto,
+      ImpNeto: datos.importeNeto,
       ImpOpEx: 0,
-      ImpIVA: importeIva,
+      ImpIVA: datos.importeIva,
       ImpTrib: 0,
       MonId: 'PES',
       MonCotiz: 1,
       CondicionIVAReceptorId: condicionIva,
-      Iva: [...porAlicuota.entries()].map(([porcentaje, v]) => ({
-        Id: mapAlicuota(porcentaje),
-        BaseImp: v.neto,
-        Importe: v.iva,
+      Iva: datos.ivaDesglose.map((d) => ({
+        Id: mapAlicuota(d.alicuotaPorcentaje),
+        BaseImp: d.neto,
+        Importe: d.iva,
       })),
+      ...(cbtesAsoc ? { CbtesAsoc: cbtesAsoc } : {}),
     });
 
     const detalle = resultado.response.FeDetResp?.FECAEDetResponse?.[0];
@@ -144,14 +153,7 @@ export class ArcaSdkProvider implements ArcaProvider {
       numeroComprobante: detalle!.CbteDesde!,
       cae: resultado.cae,
       vencimientoCae: resultado.caeFchVto,
-      importeNeto,
-      importeIva,
-      importeTotal,
     };
-  }
-
-  private redondear(n: number): number {
-    return Math.round(n * 100) / 100;
   }
 
   /** ARCA espera la fecha como string AAAAMMDD */

@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { FacturacionModule } from './facturacion/facturacion.module';
+import { FacturacionModule } from './facturacion/modulo/facturacion.module';
 
 @Module({
   imports: [

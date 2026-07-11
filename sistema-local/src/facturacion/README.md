@@ -3,21 +3,33 @@
 Módulo mínimo y funcional para emitir facturas electrónicas contra ARCA, diseñado
 **multi-tenant desde el arranque** (un concepto de `Emisor` configurable, no datos fijos).
 
+Sigue la convención **MMSC** (Modelo-Módulo-Servicio/Gestor-Controlador) +
+**GRASP** del proyecto: el Gestor no calcula nada, solo instancia/obtiene al
+Modelo y le delega. Ver la sección "Arquitectura de aplicación" en el
+`CLAUDE.md` de la raíz para el porqué.
+
 ## Estructura
+
+Carpetas MMSC (Modelo-Módulo-Servicio/Gestor-Controlador) + las carpetas del
+eje puertos-y-adaptadores/config, que son un eje aparte:
 
 ```
 facturacion/
-├── config/emisor.ts                      Datos fiscales por comercio (multi-tenant)
-├── interfaces/arca-provider.interface.ts PORT: de esto depende el resto del sistema
-├── providers/arca-sdk.provider.ts        ADAPTER con @arcasdk/core (intercambiable)
-├── entities/comprobante.entity.ts        Persistencia del comprobante + CAE
+├── modelo/comprobante.entity.ts          MODELO: persiste el comprobante + CAE
+│                                          y concentra la lógica de negocio
+│                                          (calcularDesglose, totalizar, anular...)
+├── modulo/facturacion.module.ts          MÓDULO: cableado
+├── gestor/facturacion.gestor.ts          GESTOR (GRASP Controller): orquesta,
+│                                          no calcula ni valida reglas de negocio
+├── controlador/facturacion.controller.ts CONTROLADOR: endpoints HTTP
 ├── dto/crear-factura.dto.ts              Entrada de la API
-├── facturacion.service.ts                Cálculo de totales + CAE + guardado
-├── facturacion.controller.ts             Endpoints
-└── facturacion.module.ts                 Cableado
+├── interfaces/arca-provider.interface.ts PORT: de esto depende el Gestor
+├── providers/arca-sdk.provider.ts        ADAPTER con @arcasdk/core (intercambiable,
+│                                          traductor puro: no calcula IVA ni totales)
+└── config/emisor.ts                      Datos fiscales por comercio (multi-tenant)
 ```
 
-La gracia del diseño: el service y el controller dependen del **port**
+La gracia del diseño: el Gestor y el controlador dependen del **port**
 (`ArcaProvider`), no de la librería. Cambiar `@arcasdk/core` por otro SDK o por
 SOAP directo es escribir otro adapter y cambiar una línea en el módulo. El resto
 no se toca.
@@ -99,11 +111,9 @@ Esto es un esqueleto, no está terminado. Antes de usarlo en serio:
 
 - **Mapear los errores de ARCA** a mensajes claros y reintentar los timeouts
   (los servidores de ARCA a veces demoran; conviene reintentar antes de fallar).
-- **Notas de crédito** para anulaciones (una factura con CAE no se borra: se anula
-  con una NC).
-- **Definir cómo cargás los precios**: el service asume precio neto (sin IVA) por
+- **Definir cómo cargás los precios**: el Gestor asume precio neto (sin IVA) por
   ítem. Si en el mostrador se cargan precios con IVA incluido, invertí el cálculo
-  antes de llamar al service.
+  antes de llamar al Gestor.
 - **Consultar el padrón** para validar el CUIT del receptor antes de emitir factura A.
 - **Guardar/mostrar el comprobante** (PDF con QR) para imprimirlo o mandarlo por WhatsApp.
 - **Multi-tenant real**: hoy el emisor es único (desde env). Para vender el sistema,

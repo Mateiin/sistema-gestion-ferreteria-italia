@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { cargarEmisorDesdeEnv } from '../src/facturacion/config/emisor';
 import { crearArcaSdkProvider } from '../src/facturacion/providers/arca-sdk.provider';
-import { DatosComprobante } from '../src/facturacion/interfaces/arca-provider.interface';
+import { Comprobante } from '../src/facturacion/modelo/comprobante.entity';
 
 async function main() {
   const emisor = cargarEmisorDesdeEnv();
@@ -22,23 +22,47 @@ async function main() {
   const ultimo = await provider.ultimoComprobante('B');
   console.log(`   Último comprobante autorizado (Factura B): ${ultimo}`);
 
-  const datos: DatosComprobante = {
-    tipoFactura: 'B',
-    docTipoReceptor: 99,
-    docNroReceptor: 0,
-    items: [{ neto: 100, ivaPorcentaje: 21 }],
-  };
+  // El cálculo (agrupar por alícuota, totalizar) es responsabilidad del
+  // dominio: este script, como el Gestor, solo llama a Comprobante y delega.
+  const desglose = Comprobante.calcularDesglose([
+    { cantidad: 1, precioUnitario: 100, ivaPorcentaje: 21 },
+  ]);
+  const totales = Comprobante.totalizar(desglose);
 
   console.log('\n2) Emitiendo Factura B a consumidor final (neto 100, IVA 21%)...');
   try {
-    const resultado = await provider.solicitarCae(datos);
+    const resultado = await provider.solicitarCae({
+      tipoFactura: 'B',
+      docTipoReceptor: 99,
+      docNroReceptor: 0,
+      ivaDesglose: desglose,
+      ...totales,
+    });
     console.log('\n--- Factura autorizada por ARCA ---');
     console.log(`CAE:              ${resultado.cae}`);
     console.log(`N° comprobante:   ${resultado.numeroComprobante}`);
     console.log(`Vencimiento CAE:  ${resultado.vencimientoCae}`);
-    console.log(`Importe neto:     ${resultado.importeNeto}`);
-    console.log(`Importe IVA:      ${resultado.importeIva}`);
-    console.log(`Importe total:    ${resultado.importeTotal}`);
+    console.log(`Importe neto:     ${totales.importeNeto}`);
+    console.log(`Importe IVA:      ${totales.importeIva}`);
+    console.log(`Importe total:    ${totales.importeTotal}`);
+
+    console.log('\n3) Anulando la factura recién emitida con una Nota de Crédito...');
+    const resultadoNc = await provider.solicitarNotaCredito({
+      tipoFactura: 'B',
+      docTipoReceptor: 99,
+      docNroReceptor: 0,
+      ivaDesglose: desglose,
+      ...totales,
+      comprobanteAsociado: {
+        tipoComprobante: 6, // Factura B
+        puntoVenta: emisor.puntoVenta,
+        numero: resultado.numeroComprobante,
+      },
+    });
+    console.log('\n--- Nota de Crédito autorizada por ARCA ---');
+    console.log(`CAE:              ${resultadoNc.cae}`);
+    console.log(`N° comprobante:   ${resultadoNc.numeroComprobante}`);
+    console.log(`Importe total:    ${totales.importeTotal}`);
   } catch (error) {
     console.error('\n--- ARCA rechazó el comprobante ---');
     console.error((error as Error).message);

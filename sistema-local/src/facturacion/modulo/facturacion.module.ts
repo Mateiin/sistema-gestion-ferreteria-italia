@@ -1,16 +1,16 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Comprobante } from './entities/comprobante.entity';
-import { FacturacionService } from './facturacion.service';
-import { FacturacionController } from './facturacion.controller';
-import { cargarEmisorDesdeEnv } from './config/emisor';
-import { crearArcaSdkProvider } from './providers/arca-sdk.provider';
+import { Comprobante } from '../modelo/comprobante.entity';
+import { FacturacionGestor } from '../gestor/facturacion.gestor';
+import { FacturacionController } from '../controlador/facturacion.controller';
+import { cargarEmisorDesdeEnv } from '../config/emisor';
+import { crearArcaSdkProvider } from '../providers/arca-sdk.provider';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Comprobante])],
   controllers: [FacturacionController],
   providers: [
-    FacturacionService,
+    FacturacionGestor,
     {
       // Emisor único para el MVP. Para multi-tenant, reemplazá por un provider
       // con scope de request que resuelva el emisor según quién factura.
