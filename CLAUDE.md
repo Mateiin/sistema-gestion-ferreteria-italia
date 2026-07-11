@@ -1,7 +1,7 @@
 # CLAUDE.md — Sistema de gestión para la ferretería
 
 Este archivo le da contexto a Claude para trabajar en este proyecto. Leelo al
-inicio de cada sesión.
+inicio de cada sesión. Habla siempre en español
 
 ---
 

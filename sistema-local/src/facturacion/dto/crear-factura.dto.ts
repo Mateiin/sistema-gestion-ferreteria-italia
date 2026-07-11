@@ -1,6 +1,7 @@
 import {
   IsArray,
   IsEnum,
+  IsIn,
   IsInt,
   IsNumber,
   IsOptional,
@@ -37,7 +38,7 @@ export class ItemFacturaDto {
 
   /** Alícuota de IVA en %. Opcional: si no se envía, se asume 21. */
   @IsOptional()
-  @IsNumber()
+  @IsIn([21, 10.5])
   ivaPorcentaje?: number;
 }
 
