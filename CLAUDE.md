@@ -255,6 +255,46 @@ Se ejecuta como contenedor/cron en el Compose.
 
 ---
 
+## Migraciones de base de datos (`sistema-local/`)
+
+**Estado: migraciones versionadas activas.** `synchronize` está en `false` y
+**prohibido** ponerlo en `true` fuera de un experimento local descartable.
+**Prohibido también el `ALTER TABLE` manual**: todo cambio de esquema se hace
+con `migration:generate`, se commitea el archivo generado, y se aplica con
+`migration:run` en cada base (dev, y a futuro producción).
+
+- `src/data-source.ts` — `DataSource` de TypeORM para la CLI. Lee las MISMAS
+  variables de entorno que usa la app (`DB_HOST`/`DB_PORT`/`DB_USER`/
+  `DB_PASSWORD`/`DB_NAME`). Único export de `DataSource` en el archivo (la CLI
+  de TypeORM exige exactamente uno).
+- `src/migrations/*.ts` — una migración por cambio de esquema. La primera,
+  `InitialSchema`, representa el esquema completo tal como estaba al momento
+  de activar migraciones (incluye `ivaDesglose`, `condicionIvaReceptor` y
+  `comprobanteOriginalId` de `comprobantes`, que antes se habían agregado a
+  mano con `ALTER TABLE`).
+- `AppModule` (`src/app.module.ts`) tiene `migrationsRun: true`: la app corre
+  las migraciones pendientes sola al arrancar (además de que se pueden correr
+  a mano). Verificado: arrancar la app contra una base vacía crea el esquema
+  solo con las migraciones, sin `synchronize`.
+
+**Scripts** (`sistema-local/package.json`):
+```bash
+npm run migration:generate -- src/migrations/NombreDelCambio   # diff entidades vs. base real
+npm run migration:create -- src/migrations/NombreDelCambio     # migración vacía, para SQL a mano
+npm run migration:run       # aplica las migraciones pendientes
+npm run migration:revert    # revierte la última migración aplicada
+```
+
+**Flujo para cualquier cambio de esquema:**
+1. Cambiar la entidad (columna, índice, tabla nueva).
+2. `npm run migration:generate -- src/migrations/DescripcionDelCambio` (necesita
+   Postgres corriendo y accesible con las credenciales del `.env`).
+3. Revisar el SQL generado (el `up`/`down`) antes de commitear.
+4. `npm run migration:run` para aplicarla en la base local.
+5. Commitear el archivo de migración junto con el cambio de entidad.
+
+---
+
 ## Convenciones de código
 
 - **Español** para nombres de dominio y comentarios.
@@ -266,7 +306,8 @@ Se ejecuta como contenedor/cron en el Compose.
 - Separar **dominio** de **infraestructura**. Servicios externos detrás de un puerto.
 - Plata en `decimal`/`numeric`. Cantidades fraccionables, en `decimal`.
 - Validación con `class-validator` en los DTOs.
-- Migraciones de TypeORM **versionadas**. Nada de `synchronize: true` fuera de dev.
+- Migraciones de TypeORM **versionadas** (ver sección "Migraciones de base de
+  datos"). Nada de `synchronize: true` ni `ALTER TABLE` manual.
 - Dependencias sensibles (las que tocan el cert/key): versión pinneada exacta y
   auditada antes de instalar.
 - Tests: como mínimo el e2e del flujo de facturación en homologación.
@@ -291,18 +332,23 @@ Hecho:
       `condicionIvaReceptor`; comprobantes emitidos ANTES de este cambio no
       tienen esas columnas pobladas y no se pueden anular automáticamente
       (tira `SinDesgloseIvaError`, el Gestor lo traduce a 400).
-      **Pendiente operativo:** no hay migraciones de TypeORM en el repo
-      todavía (`synchronize: false` pero sin migration runner ni carpeta de
-      migraciones) — las columnas nuevas (`ivaDesglose` jsonb,
-      `condicionIvaReceptor`, `comprobanteOriginalId`) hay que agregarlas a
-      mano con `ALTER TABLE comprobantes ADD COLUMN ...` en cada entorno hasta
-      que se arme la infra de migraciones versionadas.
+      Las 3 columnas ya quedaron capturadas en la migración inicial (ver
+      sección "Migraciones de base de datos"): **migraciones versionadas
+      activas, el `ALTER TABLE` manual queda obsoleto.**
 - [x] **Refactor MMSC + GRASP** de `facturacion/`: `facturacion.service.ts` →
       `facturacion.gestor.ts` (`FacturacionGestor`, sin lógica propia); toda la
       cuenta de IVA/totales y las validaciones de anulación se movieron a
       `Comprobante` (Modelo); `arca-sdk.provider.ts` (adapter) quedó como
       traductor puro, sin matemática de negocio. Aplicar esta misma forma a
       los módulos que se agreguen (depósito, caja, ctacte).
+- [x] **Migraciones de TypeORM versionadas** (ver sección aparte):
+      `src/data-source.ts` + `migration:generate/create/run/revert` en
+      `package.json`. Base de desarrollo reseteada a una baseline limpia y
+      migración `InitialSchema` generada y corrida contra base vacía
+      (verificado: `comprobantes` queda con las 18 columnas esperadas,
+      incluidas las 3 nuevas, y `migration:generate --check` no detecta
+      diferencias). `migrationsRun: true` en `AppModule`: se probó levantando
+      la app contra una base vacía y creó el esquema sola, sin `synchronize`.
 - [ ] **PDF del comprobante con QR** oficial (el SDK genera el QR).
 - [ ] Confirmar persistencia del comprobante y que la numeración se lleve contra
       lo que dice ARCA (no un contador propio).
@@ -328,3 +374,6 @@ Hecho:
   llave fiscal).
 - No implementar el modelo rico de stock/ventas/presentaciones sin confirmarlo.
 - No agregar features que el suegro no pidió "porque quedan lindas".
+- No poner `synchronize: true` en ningún entorno más allá de un experimento
+  local descartable, y no volver al `ALTER TABLE` manual: el esquema lo
+  manejan las migraciones (ver "Migraciones de base de datos").

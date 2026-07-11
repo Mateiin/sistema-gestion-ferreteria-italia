@@ -17,6 +17,10 @@ import { FacturacionModule } from './facturacion/modulo/facturacion.module';
         database: config.get('DB_NAME', 'ferreteria_local'),
         autoLoadEntities: true,
         synchronize: false,
+        // El esquema lo maneja SOLO migration:generate + migration:run (ver
+        // src/data-source.ts). Nunca synchronize ni ALTER TABLE manual.
+        migrations: [__dirname + '/migrations/*{.ts,.js}'],
+        migrationsRun: true,
       }),
     }),
     FacturacionModule,

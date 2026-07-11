@@ -15,6 +15,36 @@ raíz).
    funcional, ver su propio README para detalle de instalación y variables de
    entorno.
 
+## Migraciones de base de datos
+
+El esquema lo manejan **solo** las migraciones de TypeORM. `synchronize` está
+en `false` y el `ALTER TABLE` manual queda prohibido (ver "Qué NO hacer" en el
+`CLAUDE.md` de la raíz).
+
+```bash
+# Después de cambiar una entidad, generar la migración (necesita Postgres
+# corriendo y accesible con las credenciales del .env):
+npm run migration:generate -- src/migrations/NombreDelCambio
+
+# Migración vacía para escribir SQL a mano (poco común):
+npm run migration:create -- src/migrations/NombreDelCambio
+
+# Aplicar migraciones pendientes:
+npm run migration:run
+
+# Revertir la última migración aplicada:
+npm run migration:revert
+```
+
+La app también corre las migraciones pendientes sola al arrancar
+(`migrationsRun: true` en `AppModule`), así que en un despliegue normal no hace
+falta correr `migration:run` a mano — sirve igual para dev o para verificar que
+una migración nueva aplica limpio antes de commitearla.
+
+`src/data-source.ts` es el `DataSource` que usa la CLI (no lo usa la app en
+runtime, que arma su propia conexión vía `TypeOrmModule.forRootAsync`); lee las
+mismas variables `DB_*` del `.env`.
+
 ## Modelo de datos (resumen)
 
 - **Cliente**: id, nombre, telefono, saldo (derivado de los movimientos).
