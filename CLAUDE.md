@@ -123,6 +123,7 @@ misma forma de organizar las carpetas y de repartir responsabilidades. Son
 ├── controlador/<modulo>.controller.ts   CONTROLADOR
 ├── dto/                           entrada de la API (no es parte de MMSC)
 ├── interfaces/ + providers/       puertos y adaptadores (no es parte de MMSC)
+├── pdf/ (u otra carpeta de infra)  otro adapter más, mismo eje que providers/
 └── config/                        configuración (no es parte de MMSC)
 ```
 
@@ -175,30 +176,51 @@ CAE). Primer CAE obtenido con una Factura B.**
   Gestor; no conoce el SDK.
 - `modelo/comprobante.entity.ts` — **MODELO**. Persiste el comprobante + CAE
   + el desglose de IVA por alícuota (`ivaDesglose`, necesario para poder
-  anularlo después con una NC) + `condicionIvaReceptor` (solo Factura A). Ahí
-  vive la lógica: `calcularDesglose`/`totalizar` (agrupan ítems por alícuota),
+  anularlo después con una NC) + `condicionIvaReceptor` (solo Factura A) +
+  `detalle` (snapshot de ítems para el PDF) + `fecha` (CbteFch, para el PDF y
+  el QR). Ahí vive la lógica: `calcularDesglose`/`totalizar` (agrupan ítems
+  por alícuota), `armarDetalle` (snapshot por ítem, sin agrupar),
   `condicionIvaRequerida`, `crearAutorizado` (Creator), y
   `prepararNotaCredito`/`registrarNotaCredito` (validan si se puede anular y
-  arman/registran la NC). Tira `ComprobanteYaAnuladoError` / `SinDesgloseIvaError`
-  si no se puede anular; el Gestor traduce esos errores a HTTP.
+  arman/registran la NC, incluido el `detalle` que se hereda a la NC). Tira
+  `ComprobanteYaAnuladoError` / `SinDesgloseIvaError` si no se puede anular; el
+  Gestor traduce esos errores a HTTP. También tiene `construirUrlQr` (arma la
+  URL del QR oficial RG 4892, pura, sin I/O), `letra()`, `tipoDocumentoTexto()`
+  y `nombreArchivoPdf()`.
 - `providers/arca-sdk.provider.ts` — **ADAPTER** con `@arcasdk/core`. Traductor
   puro: no calcula montos ni IVA, solo arma el payload de
   `Arca.electronicBillingService.createNextVoucher` con los números que ya le
   pasó el Modelo, y detecta rechazo de ARCA (`cae` vacío) levantando error con
   las observaciones. `solicitarNotaCredito` reusa el mismo armado (método
   privado `emitirComprobante`) pasando el `CbteTipo` de NC (3=NC-A, 8=NC-B) y
-  `CbtesAsoc` con la referencia al comprobante original.
+  `CbtesAsoc` con la referencia al comprobante original. También devuelve la
+  `fecha` (CbteFch) que efectivamente se envió a ARCA, para que el Modelo la
+  persista tal cual.
+- `pdf/comprobante-pdf.provider.ts` — **ADAPTER** con `pdfmake` + `qrcode`.
+  Igual que el de ARCA: traductor puro, no calcula nada de negocio (recibe el
+  `Comprobante` y el `Emisor` ya resueltos). Arma el QR con
+  `Comprobante.construirUrlQr`, lo embebe como imagen (dataURL PNG vía
+  `qrcode`), y arma la tabla de ítems desde `detalle` — si un comprobante viejo
+  no tiene `detalle` (emitido antes de esa columna), cae a mostrar el desglose
+  por alícuota disponible con una nota, en vez de romper. Usa las fuentes
+  estándar de pdfmake (Helvetica, sin TTF embebidos). `pdf/pdfmake.d.ts` es un
+  shim de tipos mínimo (pdfmake no publica tipos para la API de servidor).
 - `gestor/facturacion.gestor.ts` — **GESTOR** (GRASP Controller). Solo instancia y
-  delega: le pide al Modelo que calcule/valide, llama al `ArcaProvider`, le
-  pasa el resultado al Modelo para que registre su propio estado, y persiste.
-  No calcula IVA ni valida reglas de negocio.
+  delega: le pide al Modelo que calcule/valide, llama al `ArcaProvider` o al
+  `ComprobantePdfProvider`, le pasa el resultado al Modelo para que registre su
+  propio estado, y persiste. No calcula IVA ni arma el PDF él mismo.
 - `dto/crear-factura.dto.ts` — cada ítem lleva su **propia alícuota**
   (`ivaPorcentaje`, default 21). Valores permitidos: **21 y 10,5** (el suegro
   pidió poder elegir entre esos dos; en el front va como selector por línea).
 - `config/emisor.ts` — datos del emisor desde `.env`. Lee cert/key de archivo
-  (`ARCA_CERT_PATH` / `ARCA_KEY_PATH`), no del contenido inline.
-- `modulo/facturacion.module.ts` — **MÓDULO**. Cablea `crearArcaSdkProvider`.
-- `controlador/facturacion.controller.ts` — **CONTROLADOR**. Endpoints HTTP.
+  (`ARCA_CERT_PATH` / `ARCA_KEY_PATH`), no del contenido inline. También lee
+  `EMISOR_DOMICILIO_COMERCIAL` / `EMISOR_INGRESOS_BRUTOS` /
+  `EMISOR_INICIO_ACTIVIDADES` (opcionales para no romper el arranque si faltan,
+  pero **obligatorios en el PDF impreso** — ver pendientes).
+- `modulo/facturacion.module.ts` — **MÓDULO**. Cablea `crearArcaSdkProvider` y
+  `ComprobantePdfProvider`.
+- `controlador/facturacion.controller.ts` — **CONTROLADOR**. Endpoints HTTP,
+  incluido `GET facturas/:id/pdf` (devuelve el PDF con `StreamableFile`).
 
 ### Cómo funciona ARCA (resumen)
 El sistema se autentica en el **WSAA** con un certificado digital → obtiene un
@@ -349,7 +371,28 @@ Hecho:
       incluidas las 3 nuevas, y `migration:generate --check` no detecta
       diferencias). `migrationsRun: true` en `AppModule`: se probó levantando
       la app contra una base vacía y creó el esquema sola, sin `synchronize`.
-- [ ] **PDF del comprobante con QR** oficial (el SDK genera el QR).
+- [x] **PDF del comprobante con QR oficial** (RG 4892): `pdf/comprobante-pdf.provider.ts`
+      con `pdfmake` + `qrcode`, endpoint `GET /facturacion/facturas/:id/pdf`.
+      `Comprobante` ahora persiste `detalle` (snapshot de ítems) y `fecha`
+      (CbteFch) — migración `AddDetalleComprobante` corrida. `ResultadoCae`
+      devuelve la `fecha` real que ARCA autorizó. Probado de punta a punta en
+      homologación: Factura B con dos alícuotas (21% + 10,5%, CAE
+      86280550588815), su Nota de Crédito (hereda `detalle`, CAE
+      86280550590700) y una Factura A con receptor CUIT (discrimina Neto/IVA
+      en los totales, CAE 86280550591421). El QR se verificó decodificando el
+      payload de forma independiente: las 12 claves y el dominio
+      `afip.gob.ar/fe/qr` coinciden exactamente con la especificación.
+      **Pendiente operativo:** el `.env` real todavía no tiene
+      `EMISOR_DOMICILIO_COMERCIAL` / `EMISOR_INGRESOS_BRUTOS` /
+      `EMISOR_INICIO_ACTIVIDADES` — sin esos datos el PDF queda incompleto
+      para imprimir de verdad (hoy muestra "-"). Quedan opcionales en el
+      código para no romper el arranque, pero hay que completarlos en el
+      `.env` antes de usar el PDF en serio.
+      **De paso:** se sacó `"incremental": true` de `tsconfig.json` — con
+      `deleteOutDir` de Nest, la caché incremental de `tsc` quedaba
+      desincronizada con `dist/` y `npm run build` terminaba "exitoso" con la
+      mitad de los archivos sin emitir (pasó dos veces en esta sesión, antes
+      de sacarlo).
 - [ ] Confirmar persistencia del comprobante y que la numeración se lleve contra
       lo que dice ARCA (no un contador propio).
 - [ ] Selector de IVA (21% / 10,5%) en el front cuando se arme la pantalla Angular.

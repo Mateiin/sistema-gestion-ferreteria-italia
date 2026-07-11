@@ -15,6 +15,7 @@ import {
 import { CrearFacturaDto, TipoFactura } from '../dto/crear-factura.dto';
 import { Emisor } from '../config/emisor';
 import { ArcaProviderFactory } from '../interfaces/arca-provider.interface';
+import { ComprobantePdfProvider } from '../pdf/comprobante-pdf.provider';
 
 /** Mapeo de nuestro enum a los códigos de comprobante de ARCA (para persistir) */
 const CODIGO_COMPROBANTE: Record<TipoFactura, number> = {
@@ -49,10 +50,12 @@ export class FacturacionGestor {
     @Inject('EMISOR') private readonly emisor: Emisor,
     @Inject('ARCA_PROVIDER_FACTORY')
     private readonly crearProvider: ArcaProviderFactory,
+    private readonly pdfProvider: ComprobantePdfProvider,
   ) {}
 
   async emitirFactura(dto: CrearFacturaDto): Promise<Comprobante> {
     const desglose = Comprobante.calcularDesglose(dto.items);
+    const detalle = Comprobante.armarDetalle(dto.items);
     const condicionIvaReceptor = Comprobante.condicionIvaRequerida(
       dto.tipo,
       dto.receptor.condicionIva,
@@ -85,6 +88,7 @@ export class FacturacionGestor {
         docNroReceptor: dto.receptor.docNro,
         condicionIvaReceptor,
         ventaId: dto.ventaId,
+        detalle,
       },
       desglose,
       resultado,
@@ -151,5 +155,23 @@ export class FacturacionGestor {
       where: { emisorId: this.emisor.id },
       order: { emitidoEl: 'DESC' },
     });
+  }
+
+  /**
+   * Busca el comprobante y le delega el armado del PDF al provider. El
+   * nombre de archivo lo arma el propio comprobante (Information Expert).
+   */
+  async generarPdf(
+    comprobanteId: string,
+  ): Promise<{ buffer: Buffer; nombreArchivo: string }> {
+    const comprobante = await this.comprobantes.findOne({
+      where: { id: comprobanteId, emisorId: this.emisor.id },
+    });
+    if (!comprobante) {
+      throw new NotFoundException('Comprobante no encontrado');
+    }
+
+    const buffer = await this.pdfProvider.generar(comprobante, this.emisor);
+    return { buffer, nombreArchivo: comprobante.nombreArchivoPdf() };
   }
 }

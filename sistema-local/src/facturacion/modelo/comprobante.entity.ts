@@ -13,12 +13,36 @@ import {
   ResultadoCae,
   TipoFacturaDominio,
 } from '../interfaces/arca-provider.interface';
+import { Emisor } from '../config/emisor';
 
 /** IVA por defecto en una ferretería (la mayoría de los productos van al 21%) */
 const IVA_DEFECTO = 21;
 
+/** Letra impresa del comprobante según el código ARCA (factura y NC comparten letra) */
+const LETRA_POR_CODIGO: Record<number, string> = {
+  1: 'A',
+  3: 'A',
+  6: 'B',
+  8: 'B',
+  11: 'C',
+};
+
+/** Nombre completo del tipo de comprobante, para el título del PDF */
+const NOMBRE_POR_CODIGO: Record<number, string> = {
+  1: 'Factura',
+  3: 'Nota de Crédito',
+  6: 'Factura',
+  8: 'Nota de Crédito',
+  11: 'Factura',
+};
+
 function redondear(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/** Convierte 'AAAAMMDD' (formato WSFEv1) a 'AAAA-MM-DD' (columna date / QR RG 4892) */
+function formatearFechaColumna(fechaArca: string): string {
+  return `${fechaArca.slice(0, 4)}-${fechaArca.slice(4, 6)}-${fechaArca.slice(6, 8)}`;
 }
 
 export class ComprobanteYaAnuladoError extends Error {
@@ -46,6 +70,15 @@ export interface DatosReceptor {
   docTipoReceptor: number;
   docNroReceptor: number;
   condicionIvaReceptor?: CondicionIvaReceptor;
+}
+
+/** Snapshot de un ítem cargado, para poder reimprimir el detalle en el PDF */
+export interface DetalleItem {
+  descripcion: string;
+  cantidad: number;
+  precioUnitario: number;
+  ivaPorcentaje: number;
+  subtotalNeto: number;
 }
 
 /**
@@ -105,6 +138,21 @@ export class Comprobante {
   @Column({ type: 'jsonb', nullable: true })
   ivaDesglose?: AlicuotaDesglose[];
 
+  /**
+   * Snapshot de los ítems al momento de emitir, para el detalle del PDF.
+   * Nullable: los comprobantes emitidos antes de esta columna no lo tienen
+   * (el generador de PDF tiene que tolerarlo, igual que con `ivaDesglose`).
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  detalle?: DetalleItem[];
+
+  /**
+   * Fecha de emisión tal como se envió a ARCA (CbteFch), formato AAAA-MM-DD.
+   * Nullable por la misma razón que `detalle`.
+   */
+  @Column({ type: 'date', nullable: true })
+  fecha?: string;
+
   @Column({ type: 'varchar' })
   cae: string;
 
@@ -148,6 +196,23 @@ export class Comprobante {
     }));
   }
 
+  /**
+   * Information Expert: arma el snapshot de ítems para el detalle del PDF.
+   * A diferencia de `calcularDesglose`, acá no se agrupa por alícuota: se
+   * conserva una línea por ítem cargado (con su descripción).
+   */
+  static armarDetalle(
+    items: ({ descripcion: string } & ItemCargado)[],
+  ): DetalleItem[] {
+    return items.map((item) => ({
+      descripcion: item.descripcion,
+      cantidad: item.cantidad,
+      precioUnitario: item.precioUnitario,
+      ivaPorcentaje: item.ivaPorcentaje ?? IVA_DEFECTO,
+      subtotalNeto: redondear(item.cantidad * item.precioUnitario),
+    }));
+  }
+
   /** Suma el desglose por alícuota en los tres totales del comprobante. */
   static totalizar(desglose: AlicuotaDesglose[]): {
     importeNeto: number;
@@ -185,6 +250,7 @@ export class Comprobante {
       tipoComprobante: number;
       puntoVenta: number;
       ventaId?: string;
+      detalle?: DetalleItem[];
     } & DatosReceptor,
     desglose: AlicuotaDesglose[],
     resultado: ResultadoCae,
@@ -198,6 +264,8 @@ export class Comprobante {
     comprobante.docNroReceptor = datos.docNroReceptor;
     comprobante.condicionIvaReceptor = datos.condicionIvaReceptor;
     comprobante.ivaDesglose = desglose;
+    comprobante.detalle = datos.detalle;
+    comprobante.fecha = formatearFechaColumna(resultado.fecha);
     Object.assign(comprobante, Comprobante.totalizar(desglose));
     comprobante.cae = resultado.cae;
     comprobante.vencimientoCae = resultado.vencimientoCae;
@@ -255,6 +323,7 @@ export class Comprobante {
         docTipoReceptor: this.docTipoReceptor,
         docNroReceptor: Number(this.docNroReceptor),
         condicionIvaReceptor: this.condicionIvaReceptor as CondicionIvaReceptor,
+        detalle: this.detalle,
       },
       this.ivaDesglose!,
       resultado,
@@ -262,5 +331,55 @@ export class Comprobante {
     notaCredito.comprobanteOriginalId = this.id;
     this.estado = 'anulado';
     return notaCredito;
+  }
+
+  /** Letra impresa del comprobante (A/B/C). Factura y su NC comparten letra. */
+  letra(): string {
+    return LETRA_POR_CODIGO[this.tipoComprobante] ?? '?';
+  }
+
+  /** "Factura B" / "Nota de Crédito B" según corresponda, para el título del PDF */
+  tipoDocumentoTexto(): string {
+    const nombre = NOMBRE_POR_CODIGO[this.tipoComprobante] ?? 'Comprobante';
+    return `${nombre} ${this.letra()}`;
+  }
+
+  /** Nombre de archivo sugerido para el PDF, ej. comprobante-B-0002-00000004.pdf */
+  nombreArchivoPdf(): string {
+    const ptoVta = String(this.puntoVenta).padStart(4, '0');
+    const numero = String(this.numero).padStart(8, '0');
+    return `comprobante-${this.letra()}-${ptoVta}-${numero}.pdf`;
+  }
+
+  /**
+   * Arma la URL del QR oficial (RG 4892) tal como la exige ARCA: el dominio
+   * sigue siendo afip.gob.ar/fe/qr aunque el organismo hoy se llame ARCA.
+   * Pura: no hace I/O, no genera la imagen (eso lo hace el adapter de PDF con
+   * la librería `qrcode`). Information Expert: necesita datos del comprobante
+   * (número, tipo, importe, receptor, CAE) y del emisor (CUIT).
+   */
+  static construirUrlQr(comprobante: Comprobante, emisor: Emisor): string {
+    if (!comprobante.fecha) {
+      throw new Error(
+        'El comprobante no tiene fecha guardada: no se puede armar el QR',
+      );
+    }
+    const payload = {
+      ver: 1,
+      fecha: comprobante.fecha,
+      cuit: emisor.cuit,
+      ptoVta: comprobante.puntoVenta,
+      tipoCmp: comprobante.tipoComprobante,
+      nroCmp: comprobante.numero,
+      importe: Number(comprobante.importeTotal),
+      moneda: 'PES',
+      ctz: 1,
+      tipoDocRec: comprobante.docTipoReceptor,
+      nroDocRec: Number(comprobante.docNroReceptor),
+      tipoCodAut: 'E',
+      codAut: Number(comprobante.cae),
+    };
+    const base64 = Buffer.from(JSON.stringify(payload)).toString('base64');
+    return `https://www.afip.gob.ar/fe/qr/?p=${base64}`;
   }
 }

@@ -17,7 +17,8 @@ eje puertos-y-adaptadores/config, que son un eje aparte:
 facturacion/
 ├── modelo/comprobante.entity.ts          MODELO: persiste el comprobante + CAE
 │                                          y concentra la lógica de negocio
-│                                          (calcularDesglose, totalizar, anular...)
+│                                          (calcularDesglose, totalizar, anular,
+│                                          construirUrlQr, nombreArchivoPdf...)
 ├── modulo/facturacion.module.ts          MÓDULO: cableado
 ├── gestor/facturacion.gestor.ts          GESTOR (GRASP Controller): orquesta,
 │                                          no calcula ni valida reglas de negocio
@@ -26,6 +27,9 @@ facturacion/
 ├── interfaces/arca-provider.interface.ts PORT: de esto depende el Gestor
 ├── providers/arca-sdk.provider.ts        ADAPTER con @arcasdk/core (intercambiable,
 │                                          traductor puro: no calcula IVA ni totales)
+├── pdf/comprobante-pdf.provider.ts        ADAPTER con pdfmake + qrcode: arma el
+│   pdf/pdfmake.d.ts                       PDF con el QR oficial (RG 4892),
+│                                          tampoco calcula nada de negocio
 └── config/emisor.ts                      Datos fiscales por comercio (multi-tenant)
 ```
 
@@ -57,6 +61,11 @@ EMISOR_RAZON_SOCIAL="Ferretería de ..."
 EMISOR_CUIT=20123456783
 EMISOR_PUNTO_VENTA=4              # el que creaste en ARCA, exclusivo del sistema
 EMISOR_CONDICION_IVA=RI
+# Obligatorios en el PDF impreso (no los pide WSFEv1, pero sin esto el
+# comprobante impreso queda incompleto/legalmente inválido para imprimir):
+EMISOR_DOMICILIO_COMERCIAL="Calle Falsa 123, Localidad, Provincia"
+EMISOR_INGRESOS_BRUTOS=20123456783
+EMISOR_INICIO_ACTIVIDADES=01/2020
 ARCA_AMBIENTE=homologacion        # empezá SIEMPRE en homologacion
 ARCA_CERT_PATH=./certs/ferreteria.crt
 ARCA_KEY_PATH=./certs/ferreteria.key
@@ -105,6 +114,14 @@ la ferretería.
 | 5 | Consumidor Final |
 | 6 | Monotributo |
 
+## PDF del comprobante
+
+`GET /facturacion/facturas/:id/pdf` devuelve el PDF (con el QR oficial RG 4892
+embebido) como `application/pdf`, nombre tipo `comprobante-B-0002-00000005.pdf`.
+Si el `.env` no tiene `EMISOR_DOMICILIO_COMERCIAL`/`EMISOR_INGRESOS_BRUTOS`/
+`EMISOR_INICIO_ACTIVIDADES`, esos campos salen en blanco (`-`) en el PDF: hay
+que completarlos para que el comprobante impreso sea válido de verdad.
+
 ## Lo que falta para producción (TODOs conscientes)
 
 Esto es un esqueleto, no está terminado. Antes de usarlo en serio:
@@ -115,6 +132,7 @@ Esto es un esqueleto, no está terminado. Antes de usarlo en serio:
   ítem. Si en el mostrador se cargan precios con IVA incluido, invertí el cálculo
   antes de llamar al Gestor.
 - **Consultar el padrón** para validar el CUIT del receptor antes de emitir factura A.
-- **Guardar/mostrar el comprobante** (PDF con QR) para imprimirlo o mandarlo por WhatsApp.
+- **Completar los datos legales del emisor** en el `.env` real (domicilio,
+  Ingresos Brutos, inicio de actividades) para que el PDF sea válido.
 - **Multi-tenant real**: hoy el emisor es único (desde env). Para vender el sistema,
   resolvé el emisor por request y guardá cert/key/punto de venta por cliente.

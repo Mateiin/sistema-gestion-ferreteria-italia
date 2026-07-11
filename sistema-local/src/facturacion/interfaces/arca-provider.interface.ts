@@ -55,6 +55,8 @@ export interface ResultadoCae {
   numeroComprobante: number;
   cae: string;
   vencimientoCae: string;
+  /** Fecha de emisión enviada a ARCA (CbteFch), formato AAAAMMDD */
+  fecha: string;
 }
 
 export interface ArcaProvider {

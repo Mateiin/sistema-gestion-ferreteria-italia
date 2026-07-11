@@ -109,6 +109,7 @@ export class ArcaSdkProvider implements ArcaProvider {
   ): Promise<ResultadoCae> {
     const condicionIva =
       CONDICION_IVA_RECEPTOR[datos.condicionIvaReceptor ?? 'CONSUMIDOR_FINAL'];
+    const cbteFch = this.formatearFecha(new Date());
 
     const resultado = await this.arca.electronicBillingService.createNextVoucher({
       CantReg: 1,
@@ -117,7 +118,7 @@ export class ArcaSdkProvider implements ArcaProvider {
       Concepto: 1, // 1 = Productos (una ferretería vende productos)
       DocTipo: datos.docTipoReceptor,
       DocNro: datos.docNroReceptor,
-      CbteFch: this.formatearFecha(new Date()),
+      CbteFch: cbteFch,
       ImpTotal: datos.importeTotal,
       ImpTotConc: 0,
       ImpNeto: datos.importeNeto,
@@ -153,6 +154,7 @@ export class ArcaSdkProvider implements ArcaProvider {
       numeroComprobante: detalle!.CbteDesde!,
       cae: resultado.cae,
       vencimientoCae: resultado.caeFchVto,
+      fecha: cbteFch,
     };
   }
 

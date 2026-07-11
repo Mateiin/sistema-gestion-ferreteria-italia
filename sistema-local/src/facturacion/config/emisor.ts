@@ -27,6 +27,14 @@ export interface Emisor {
   cert: string;
   /** Contenido de la clave privada .key (string PEM). SECRETO. */
   key: string;
+  /**
+   * Datos legales para el comprobante IMPRESO (no los pide WSFEv1, pero son
+   * obligatorios en el PDF). Opcionales acá para no romper el arranque de la
+   * app si todavía no están en el `.env`; el generador de PDF sí los necesita.
+   */
+  domicilioComercial?: string;
+  ingresosBrutos?: string;
+  inicioActividades?: string;
 }
 
 /**
@@ -50,5 +58,8 @@ export function cargarEmisorDesdeEnv(): Emisor {
     // Los certificados se pasan como contenido PEM (podés leerlos de archivo o de un secret manager)
     cert: fs.readFileSync(requerido('ARCA_CERT_PATH'), 'utf8'),
     key: fs.readFileSync(requerido('ARCA_KEY_PATH'), 'utf8'),
+    domicilioComercial: process.env.EMISOR_DOMICILIO_COMERCIAL,
+    ingresosBrutos: process.env.EMISOR_INGRESOS_BRUTOS,
+    inicioActividades: process.env.EMISOR_INICIO_ACTIVIDADES,
   };
 }

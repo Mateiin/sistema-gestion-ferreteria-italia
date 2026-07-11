@@ -5,12 +5,14 @@ import { FacturacionGestor } from '../gestor/facturacion.gestor';
 import { FacturacionController } from '../controlador/facturacion.controller';
 import { cargarEmisorDesdeEnv } from '../config/emisor';
 import { crearArcaSdkProvider } from '../providers/arca-sdk.provider';
+import { ComprobantePdfProvider } from '../pdf/comprobante-pdf.provider';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Comprobante])],
   controllers: [FacturacionController],
   providers: [
     FacturacionGestor,
+    ComprobantePdfProvider,
     {
       // Emisor único para el MVP. Para multi-tenant, reemplazá por un provider
       // con scope de request que resuelva el emisor según quién factura.
