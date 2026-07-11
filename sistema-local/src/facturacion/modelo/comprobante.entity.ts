@@ -18,6 +18,9 @@ import { Emisor } from '../config/emisor';
 /** IVA por defecto en una ferretería (la mayoría de los productos van al 21%) */
 const IVA_DEFECTO = 21;
 
+/** Unidad de medida por defecto de ARCA: 7 = "unidades" (el genérico) */
+const UNIDAD_MEDIDA_DEFECTO = 7;
+
 /** Letra impresa del comprobante según el código ARCA (factura y NC comparten letra) */
 const LETRA_POR_CODIGO: Record<number, string> = {
   1: 'A',
@@ -79,6 +82,8 @@ export interface DetalleItem {
   precioUnitario: number;
   ivaPorcentaje: number;
   subtotalNeto: number;
+  /** Código de unidad de medida de ARCA (7 = unidades, el genérico) */
+  unidadMedida: number;
 }
 
 /**
@@ -129,6 +134,15 @@ export class Comprobante {
    */
   @Column({ type: 'varchar', nullable: true })
   condicionIvaReceptor?: string;
+
+  /**
+   * Cómo se cobró (mismos valores que el facturador de ARCA: CONTADO,
+   * TARJETA_DEBITO, TARJETA_CREDITO, CUENTA_CORRIENTE, CHEQUE,
+   * TRANSFERENCIA_BANCARIA, OTRA). Nullable: comprobantes emitidos antes de
+   * esta columna no la tienen. Obligatoria en el DTO para los nuevos.
+   */
+  @Column({ type: 'varchar', nullable: true })
+  condicionVenta?: string;
 
   /**
    * Importes agrupados por alícuota. Sin esto no se puede armar la Nota de
@@ -239,7 +253,7 @@ export class Comprobante {
    */
   static armarDetalle(
     tipoFactura: TipoFacturaDominio,
-    items: ({ descripcion: string } & ItemCargado)[],
+    items: ({ descripcion: string; unidadMedida?: number } & ItemCargado)[],
   ): DetalleItem[] {
     return items.map((item) => {
       const ivaPorcentaje = item.ivaPorcentaje ?? IVA_DEFECTO;
@@ -255,6 +269,7 @@ export class Comprobante {
         precioUnitario: item.precioUnitario,
         ivaPorcentaje,
         subtotalNeto: redondear(neto),
+        unidadMedida: item.unidadMedida ?? UNIDAD_MEDIDA_DEFECTO,
       };
     });
   }
@@ -297,6 +312,7 @@ export class Comprobante {
       puntoVenta: number;
       ventaId?: string;
       detalle?: DetalleItem[];
+      condicionVenta?: string;
     } & DatosReceptor,
     desglose: AlicuotaDesglose[],
     resultado: ResultadoCae,
@@ -309,6 +325,7 @@ export class Comprobante {
     comprobante.docTipoReceptor = datos.docTipoReceptor;
     comprobante.docNroReceptor = datos.docNroReceptor;
     comprobante.condicionIvaReceptor = datos.condicionIvaReceptor;
+    comprobante.condicionVenta = datos.condicionVenta;
     comprobante.ivaDesglose = desglose;
     comprobante.detalle = datos.detalle;
     comprobante.fecha = formatearFechaColumna(resultado.fecha);
@@ -370,6 +387,7 @@ export class Comprobante {
         docNroReceptor: Number(this.docNroReceptor),
         condicionIvaReceptor: this.condicionIvaReceptor as CondicionIvaReceptor,
         detalle: this.detalle,
+        condicionVenta: this.condicionVenta,
       },
       this.ivaDesglose!,
       resultado,

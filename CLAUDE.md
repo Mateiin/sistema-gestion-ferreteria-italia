@@ -4,8 +4,13 @@ Este archivo le da contexto a Claude para trabajar en este proyecto. Leelo al
 inicio de cada sesión. Manténganlo actualizado: un CLAUDE.md viejo manda a
 construir sobre supuestos que ya no valen.
 
-> Última actualización: se cerró y probó de punta a punta la facturación
-> electrónica en homologación (primer CAE obtenido).
+> Última actualización: facturación electrónica con circuito completo probado
+> en homologación — emisión (A/B), Nota de Crédito, PDF con QR oficial (RG
+> 4892), cálculo de neto/IVA corregido según tipo de comprobante, y unidad de
+> medida por ítem + condición de venta del comprobante (preparado para que
+> cuentas corrientes enganche el cargo por venta fiada, sin implementar
+> todavía). Módulo reorganizado en MMSC + GRASP. Migraciones de TypeORM
+> versionadas activas.
 
 ---
 
@@ -166,8 +171,11 @@ ya le pasaron.
 
 ## Módulo de facturación (ARCA) — `sistema-local/src/facturacion/`
 
-**Estado: circuito probado de punta a punta en homologación (WSAA → WSFEv1 →
-CAE). Primer CAE obtenido con una Factura B.**
+**Estado: circuito completo probado de punta a punta en homologación (WSAA →
+WSFEv1 → CAE), con Factura A y B, Nota de Crédito y PDF con QR oficial. El
+cálculo de neto/IVA ya distingue correctamente entre A (precio neto) y B
+(precio con IVA incluido) — ver "Estado actual y pendientes" para el detalle
+y los CAE de prueba.**
 
 ### Arquitectura (MMSC + GRASP — ver sección general más arriba)
 - `interfaces/arca-provider.interface.ts` — **PORT**. Expresa intención de
@@ -177,8 +185,12 @@ CAE). Primer CAE obtenido con una Factura B.**
 - `modelo/comprobante.entity.ts` — **MODELO**. Persiste el comprobante + CAE
   + el desglose de IVA por alícuota (`ivaDesglose`, necesario para poder
   anularlo después con una NC) + `condicionIvaReceptor` (solo Factura A) +
-  `detalle` (snapshot de ítems para el PDF) + `fecha` (CbteFch, para el PDF y
-  el QR). Ahí vive la lógica: `calcularImportesLinea` (neto/IVA de una línea
+  `detalle` (snapshot de ítems para el PDF, cada uno con su `unidadMedida`) +
+  `fecha` (CbteFch, para el PDF y el QR) + `condicionVenta` (cómo se cobró).
+  Ni `detalle`/`unidadMedida` ni `condicionVenta` se mandan a ARCA: WSFEv1 no
+  recibe líneas de detalle ni condición de venta, son solo para nuestro
+  registro y el PDF. Ahí vive la lógica: `calcularImportesLinea` (neto/IVA de
+  una línea
   según si el tipo trae el precio neto —A— o con IVA incluido —B/C—),
   `calcularDesglose`/`totalizar` (agrupan ítems por alícuota, redondeando una
   sola vez por grupo), `armarDetalle` (snapshot por ítem, sin agrupar),
@@ -210,10 +222,16 @@ CAE). Primer CAE obtenido con una Factura B.**
 - `gestor/facturacion.gestor.ts` — **GESTOR** (GRASP Controller). Solo instancia y
   delega: le pide al Modelo que calcule/valide, llama al `ArcaProvider` o al
   `ComprobantePdfProvider`, le pasa el resultado al Modelo para que registre su
-  propio estado, y persiste. No calcula IVA ni arma el PDF él mismo.
+  propio estado, y persiste. No calcula IVA ni arma el PDF él mismo. Tiene un
+  `// TODO(ctacte)` en `emitirFactura`: cuando `condicionVenta ===
+  CUENTA_CORRIENTE`, ahí es donde el módulo de cuentas corrientes (todavía no
+  existe) va a disparar el cargo en la cuenta del cliente.
 - `dto/crear-factura.dto.ts` — cada ítem lleva su **propia alícuota**
-  (`ivaPorcentaje`, default 21). Valores permitidos: **21 y 10,5** (el suegro
-  pidió poder elegir entre esos dos; en el front va como selector por línea).
+  (`ivaPorcentaje`, default 21) y su **unidad de medida** (`unidadMedida`,
+  código ARCA, default 7 = "unidades"). Valores de alícuota permitidos: **21 y
+  10,5** (el suegro pidió poder elegir entre esos dos; en el front va como
+  selector por línea). `condicionVenta` (enum `CondicionVenta`, obligatorio)
+  es cómo se cobró el comprobante.
 - `config/emisor.ts` — datos del emisor desde `.env`. Lee cert/key de archivo
   (`ARCA_CERT_PATH` / `ARCA_KEY_PATH`), no del contenido inline. También lee
   `EMISOR_DOMICILIO_COMERCIAL` / `EMISOR_INGRESOS_BRUTOS` /
@@ -416,6 +434,41 @@ Hecho:
       tipo elegido — en B/C es el precio final (con IVA), en A es el neto. Es
       la misma confusión en la que cayó el cálculo del backend: si la UI no
       lo aclara, el operador la va a errar.
+- [x] **Unidad de medida por ítem y condición de venta del comprobante.**
+      `ItemFacturaDto.unidadMedida?: number` (código ARCA, default 7 =
+      "unidades" si no se envía) — **no se manda a ARCA**: se confirmó que
+      WSFEv1 (el servicio que usamos para A/B/C) no recibe líneas de detalle,
+      solo totales agregados por alícuota; `unidadMedida` es puramente para
+      nuestro registro y para el PDF (el catálogo Umed sí existe en el SDK,
+      pero pertenece al servicio FEX de exportación, que no usamos). Se guarda
+      en `DetalleItem.unidadMedida` (dentro del jsonb `detalle`) y se imprime
+      en la tabla del PDF.
+      `CondicionVenta` (enum: CONTADO, TARJETA_DEBITO, TARJETA_CREDITO,
+      CUENTA_CORRIENTE, CHEQUE, TRANSFERENCIA_BANCARIA, OTRA) — obligatoria en
+      `CrearFacturaDto`, tampoco se manda a ARCA (mismo motivo: no es un campo
+      de WSFEv1, es metadata que el facturador de ARCA también solo imprime).
+      Columna `condicionVenta` (varchar, nullable por compatibilidad con los
+      comprobantes ya emitidos) en `Comprobante`; se hereda a la Nota de
+      Crédito igual que `detalle`. Se imprime en el PDF.
+      **Dejado preparado, sin implementar (`// TODO(ctacte)` en
+      `FacturacionGestor.emitirFactura`):** cuando `condicionVenta ===
+      CUENTA_CORRIENTE`, la venta es fiada y el módulo de cuentas corrientes
+      (todavía no existe) va a tener que generar el cargo correspondiente ahí.
+      Migración `AddCondicionVenta` generada y corrida — el cambio a
+      `unidadMedida` NO generó migración porque vive dentro de un jsonb
+      (`detalle`), que no tiene esquema fijo para Postgres/TypeORM.
+      Verificado en homologación: Factura B con unidad de medida explícita en
+      un ítem (m) y default en otro (unidades), `condicionVenta:
+      CUENTA_CORRIENTE`, CAE `86280551827902`; su Nota de Crédito hereda
+      `condicionVenta` y `detalle`, CAE `86280551827944`. Los dos aparecen
+      correctamente en el PDF.
+- [ ] **Factura C**: no implementada. Sumar `CbteTipo` 11 es agregar el código
+      al mapeo (`CBTE_TIPO`/`CODIGO_COMPROBANTE` ya tienen el 11 en varios
+      lados como referencia, pero falta el circuito completo) y usar la rama
+      de IVA extraído que ya existe en `calcularImportesLinea` (Factura C es
+      igual que B en ese sentido: precio con IVA incluido, pero además va sin
+      discriminar receptor RI). Pendiente confirmar con el titular si lo
+      necesita — hoy el negocio solo emite A y B.
 - [ ] Confirmar persistencia del comprobante y que la numeración se lleve contra
       lo que dice ARCA (no un contador propio).
 - [ ] Selector de IVA (21% / 10,5%) en el front cuando se arme la pantalla Angular.
@@ -441,3 +494,6 @@ Hecho:
 - No poner `synchronize: true` en ningún entorno más allá de un experimento
   local descartable, y no volver al `ALTER TABLE` manual: el esquema lo
   manejan las migraciones (ver "Migraciones de base de datos").
+- No asumir que `precioUnitario` es siempre neto: en Factura A sí, en Factura
+  B (y C) ya viene con IVA incluido (ver "Qué representa `precioUnitario`
+  según el tipo" en el `README.md` de `facturacion/`). Fue un bug real.

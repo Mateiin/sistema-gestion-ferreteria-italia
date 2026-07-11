@@ -12,7 +12,11 @@ import {
   ComprobanteYaAnuladoError,
   SinDesgloseIvaError,
 } from '../modelo/comprobante.entity';
-import { CrearFacturaDto, TipoFactura } from '../dto/crear-factura.dto';
+import {
+  CondicionVenta,
+  CrearFacturaDto,
+  TipoFactura,
+} from '../dto/crear-factura.dto';
 import { Emisor } from '../config/emisor';
 import { ArcaProviderFactory } from '../interfaces/arca-provider.interface';
 import { ComprobantePdfProvider } from '../pdf/comprobante-pdf.provider';
@@ -89,12 +93,21 @@ export class FacturacionGestor {
         condicionIvaReceptor,
         ventaId: dto.ventaId,
         detalle,
+        condicionVenta: dto.condicionVenta,
       },
       desglose,
       resultado,
     );
 
-    return this.comprobantes.save(comprobante);
+    const guardado = await this.comprobantes.save(comprobante);
+
+    if (dto.condicionVenta === CondicionVenta.CUENTA_CORRIENTE) {
+      // TODO(ctacte): esta factura es una venta fiada. Cuando exista el
+      // módulo de cuentas corrientes, disparar acá el cargo en la cuenta del
+      // cliente (CtaCteMov tipo "cargo") por `guardado.importeTotal`.
+    }
+
+    return guardado;
   }
 
   /**

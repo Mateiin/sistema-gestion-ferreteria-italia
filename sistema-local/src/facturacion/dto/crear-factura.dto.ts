@@ -23,6 +23,17 @@ export enum CondicionIvaReceptorDto {
   CONSUMIDOR_FINAL = 'CONSUMIDOR_FINAL',
 }
 
+/** Mismos valores que usa el facturador de ARCA en su formulario web */
+export enum CondicionVenta {
+  CONTADO = 'CONTADO',
+  TARJETA_DEBITO = 'TARJETA_DEBITO',
+  TARJETA_CREDITO = 'TARJETA_CREDITO',
+  CUENTA_CORRIENTE = 'CUENTA_CORRIENTE',
+  CHEQUE = 'CHEQUE',
+  TRANSFERENCIA_BANCARIA = 'TRANSFERENCIA_BANCARIA',
+  OTRA = 'OTRA',
+}
+
 export class ItemFacturaDto {
   @IsString()
   descripcion: string;
@@ -44,6 +55,17 @@ export class ItemFacturaDto {
   @IsOptional()
   @IsIn([21, 10.5])
   ivaPorcentaje?: number;
+
+  /**
+   * Código de unidad de medida de ARCA (catálogo FEParamGetTiposUnidadesMedida).
+   * Opcional: si no se envía, se asume 7 ("unidades", el genérico). No lo
+   * recibe WSFEv1 (no maneja líneas, solo totales) — es para nuestro registro
+   * y para el detalle impreso en el PDF.
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  unidadMedida?: number;
 }
 
 export class ReceptorDto {
@@ -73,6 +95,15 @@ export class CrearFacturaDto {
   @ValidateNested({ each: true })
   @Type(() => ItemFacturaDto)
   items: ItemFacturaDto[];
+
+  /**
+   * Cómo se cobró (mismos valores que el facturador de ARCA). Si es
+   * CUENTA_CORRIENTE, la venta es fiada: el módulo de cuentas corrientes va a
+   * usar este dato para generar el cargo (todavía no existe, ver TODO(ctacte)
+   * en el Gestor).
+   */
+  @IsEnum(CondicionVenta)
+  condicionVenta: CondicionVenta;
 
   /** Vínculo opcional con la venta interna que originó la factura */
   @IsOptional()

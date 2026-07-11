@@ -28,6 +28,38 @@ const CONDICION_IVA_RECEPTOR_LEGIBLE: Record<string, string> = {
   CONSUMIDOR_FINAL: 'Consumidor Final',
 };
 
+const CONDICION_VENTA_LEGIBLE: Record<string, string> = {
+  CONTADO: 'Contado',
+  TARJETA_DEBITO: 'Tarjeta de Débito',
+  TARJETA_CREDITO: 'Tarjeta de Crédito',
+  CUENTA_CORRIENTE: 'Cuenta Corriente',
+  CHEQUE: 'Cheque',
+  TRANSFERENCIA_BANCARIA: 'Transferencia Bancaria',
+  OTRA: 'Otra',
+};
+
+/** Catálogo ARCA de unidades de medida (FEParamGetTiposUnidadesMedida) — solo
+ * las de uso común en una ferretería; el resto se muestra como "Cód. N". */
+const UNIDAD_MEDIDA_LEGIBLE: Record<number, string> = {
+  1: 'kg',
+  2: 'm',
+  3: 'm³',
+  4: 'l',
+  5: 'km',
+  7: 'unidades',
+  9: 'docena',
+  41: 'm²',
+  96: 'otras',
+};
+
+/** Mismo default que `Comprobante.armarDetalle`, para comprobantes viejos
+ * cuyo `detalle` persistido no tiene `unidadMedida` (columna agregada después). */
+const UNIDAD_MEDIDA_DEFECTO = 7;
+
+function formatearUnidad(codigo: number): string {
+  return UNIDAD_MEDIDA_LEGIBLE[codigo] ?? `Cód. ${codigo}`;
+}
+
 function formatearMoneda(n: number): string {
   return Number(n).toLocaleString('es-AR', {
     minimumFractionDigits: 2,
@@ -113,6 +145,14 @@ export class ComprobantePdfProvider {
         {
           text: `Fecha de emisión: ${comprobante.fecha ? formatearFechaLegible(comprobante.fecha) : '-'}`,
         },
+        {
+          text: `Condición de venta: ${
+            (comprobante.condicionVenta &&
+              CONDICION_VENTA_LEGIBLE[comprobante.condicionVenta]) ??
+            comprobante.condicionVenta ??
+            '-'
+          }`,
+        },
         { text: ' ', margin: [0, 5, 0, 0] as [number, number, number, number] },
         { text: 'Receptor', style: 'seccion' },
         {
@@ -162,19 +202,25 @@ export class ComprobantePdfProvider {
    * desglose por alícuota disponible y una nota, en vez de romper.
    */
   private armarTablaItems(comprobante: Comprobante) {
-    const encabezado = ['Descripción', 'Cantidad', 'P. Unitario', 'Alícuota', 'Importe'].map(
-      (texto) => ({ text: texto, bold: true }),
-    );
+    const encabezado = [
+      'Descripción',
+      'Cantidad',
+      'Unidad',
+      'P. Unitario',
+      'Alícuota',
+      'Importe',
+    ].map((texto) => ({ text: texto, bold: true }));
 
     if (comprobante.detalle && comprobante.detalle.length > 0) {
       return {
         table: {
-          widths: ['*', 'auto', 'auto', 'auto', 'auto'],
+          widths: ['*', 'auto', 'auto', 'auto', 'auto', 'auto'],
           body: [
             encabezado,
             ...comprobante.detalle.map((item) => [
               item.descripcion,
               String(item.cantidad),
+              formatearUnidad(item.unidadMedida ?? UNIDAD_MEDIDA_DEFECTO),
               `$ ${formatearMoneda(item.precioUnitario)}`,
               `${item.ivaPorcentaje}%`,
               `$ ${formatearMoneda(item.subtotalNeto)}`,
@@ -186,6 +232,7 @@ export class ComprobantePdfProvider {
 
     const filas = (comprobante.ivaDesglose ?? []).map((d: AlicuotaDesglose) => [
       `Importe gravado al ${d.alicuotaPorcentaje}%`,
+      '',
       '',
       '',
       `${d.alicuotaPorcentaje}%`,
@@ -201,8 +248,11 @@ export class ComprobantePdfProvider {
         },
         {
           table: {
-            widths: ['*', 'auto', 'auto', 'auto', 'auto'],
-            body: [encabezado, ...(filas.length > 0 ? filas : [['(sin datos)', '', '', '', '']])],
+            widths: ['*', 'auto', 'auto', 'auto', 'auto', 'auto'],
+            body: [
+              encabezado,
+              ...(filas.length > 0 ? filas : [['(sin datos)', '', '', '', '', '']]),
+            ],
           },
         },
       ],
