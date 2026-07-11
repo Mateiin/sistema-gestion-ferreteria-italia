@@ -175,42 +175,88 @@ export class Comprobante {
   emitidoEl: Date;
 
   /**
+   * Information Expert: calcula neto e IVA de una línea según qué representa
+   * el `precioUnitario` en ese tipo de comprobante — confirmado contra el
+   * facturador de ARCA:
+   * - Factura A: el precio es NETO (sin IVA). Se SUMA el IVA.
+   * - Factura B (y C): el precio ya viene CON IVA incluido. Se EXTRAE el neto.
+   * No redondea: el redondeo se hace una sola vez, por alícuota ya agrupada
+   * (ver `calcularDesglose`), para no arrastrar error de redondeo línea a línea.
+   */
+  static calcularImportesLinea(
+    tipoFactura: TipoFacturaDominio,
+    cantidad: number,
+    precioUnitario: number,
+    ivaPorcentaje: number,
+  ): { neto: number; iva: number } {
+    const importe = cantidad * precioUnitario;
+    if (tipoFactura === 'A') {
+      const neto = importe;
+      return { neto, iva: neto * (ivaPorcentaje / 100) };
+    }
+    // B (y C): el precio cargado ya incluye el IVA.
+    const neto = importe / (1 + ivaPorcentaje / 100);
+    return { neto, iva: importe - neto };
+  }
+
+  /**
    * Information Expert: agrupa los ítems cargados por alícuota y calcula neto
    * e IVA de cada grupo. ARCA pide el IVA discriminado por alícuota, no por
-   * línea de venta.
+   * línea de venta. Se acumula SIN redondear y se redondea recién al cerrar
+   * cada grupo, para cuadrar con lo que espera ARCA.
    */
-  static calcularDesglose(items: ItemCargado[]): AlicuotaDesglose[] {
+  static calcularDesglose(
+    tipoFactura: TipoFacturaDominio,
+    items: ItemCargado[],
+  ): AlicuotaDesglose[] {
     const porAlicuota = new Map<number, { neto: number; iva: number }>();
     for (const item of items) {
       const ivaPorcentaje = item.ivaPorcentaje ?? IVA_DEFECTO;
-      const neto = redondear(item.cantidad * item.precioUnitario);
+      const { neto, iva } = Comprobante.calcularImportesLinea(
+        tipoFactura,
+        item.cantidad,
+        item.precioUnitario,
+        ivaPorcentaje,
+      );
       const acumulado = porAlicuota.get(ivaPorcentaje) ?? { neto: 0, iva: 0 };
-      acumulado.neto = redondear(acumulado.neto + neto);
-      acumulado.iva = redondear(acumulado.iva + neto * (ivaPorcentaje / 100));
+      acumulado.neto += neto;
+      acumulado.iva += iva;
       porAlicuota.set(ivaPorcentaje, acumulado);
     }
     return [...porAlicuota.entries()].map(([alicuotaPorcentaje, v]) => ({
       alicuotaPorcentaje,
-      neto: v.neto,
-      iva: v.iva,
+      neto: redondear(v.neto),
+      iva: redondear(v.iva),
     }));
   }
 
   /**
    * Information Expert: arma el snapshot de ítems para el detalle del PDF.
    * A diferencia de `calcularDesglose`, acá no se agrupa por alícuota: se
-   * conserva una línea por ítem cargado (con su descripción).
+   * conserva una línea por ítem cargado (con su descripción). El
+   * `subtotalNeto` es siempre el neto (sin IVA), extraído del precio cargado
+   * si el tipo de comprobante lo trae con IVA incluido.
    */
   static armarDetalle(
+    tipoFactura: TipoFacturaDominio,
     items: ({ descripcion: string } & ItemCargado)[],
   ): DetalleItem[] {
-    return items.map((item) => ({
-      descripcion: item.descripcion,
-      cantidad: item.cantidad,
-      precioUnitario: item.precioUnitario,
-      ivaPorcentaje: item.ivaPorcentaje ?? IVA_DEFECTO,
-      subtotalNeto: redondear(item.cantidad * item.precioUnitario),
-    }));
+    return items.map((item) => {
+      const ivaPorcentaje = item.ivaPorcentaje ?? IVA_DEFECTO;
+      const { neto } = Comprobante.calcularImportesLinea(
+        tipoFactura,
+        item.cantidad,
+        item.precioUnitario,
+        ivaPorcentaje,
+      );
+      return {
+        descripcion: item.descripcion,
+        cantidad: item.cantidad,
+        precioUnitario: item.precioUnitario,
+        ivaPorcentaje,
+        subtotalNeto: redondear(neto),
+      };
+    });
   }
 
   /** Suma el desglose por alícuota en los tres totales del comprobante. */

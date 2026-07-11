@@ -9,6 +9,7 @@
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main",
     "probar:fe": "tsx scripts/probar-facturacion.ts",
+    "probar:calculo": "tsx scripts/probar-calculo-iva.ts",
     "migration:create": "tsx ./node_modules/typeorm/cli.js migration:create",
     "migration:generate": "tsx ./node_modules/typeorm/cli.js migration:generate -d src/data-source.ts",
     "migration:run": "tsx ./node_modules/typeorm/cli.js migration:run -d src/data-source.ts",

@@ -31,7 +31,11 @@ export class ItemFacturaDto {
   @Min(0)
   cantidad: number;
 
-  /** Precio unitario SIN IVA (neto) */
+  /**
+   * En Factura A es NETO (sin IVA). En Factura B (y C) ya viene CON IVA
+   * incluido — confirmado contra el facturador de ARCA. Ver
+   * `Comprobante.calcularImportesLinea`, que rama según el tipo.
+   */
   @IsNumber()
   @Min(0)
   precioUnitario: number;

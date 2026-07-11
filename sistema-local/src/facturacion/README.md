@@ -114,6 +114,20 @@ la ferretería.
 | 5 | Consumidor Final |
 | 6 | Monotributo |
 
+## Qué representa `precioUnitario` según el tipo
+
+Confirmado contra el facturador de ARCA: en **Factura A el precio es NETO**
+(se suma el IVA); en **Factura B (y C) el precio ya viene CON IVA incluido**
+(se extrae el neto). `Comprobante.calcularImportesLinea(tipoFactura, ...)` es
+el que rama según el tipo; lo usan `calcularDesglose` (agrupa por alícuota,
+redondea una sola vez por grupo — no línea a línea, para cuadrar con ARCA) y
+`armarDetalle` (snapshot para el PDF). Test offline en
+`scripts/probar-calculo-iva.ts` (`npm run probar:calculo`).
+
+**Pendiente para el front:** la pantalla de carga tiene que dejar explícito
+qué precio pide según el tipo elegido (en B/C el final con IVA, en A el
+neto) — es la misma confusión en la que cayó el cálculo del backend.
+
 ## PDF del comprobante
 
 `GET /facturacion/facturas/:id/pdf` devuelve el PDF (con el QR oficial RG 4892
@@ -128,9 +142,6 @@ Esto es un esqueleto, no está terminado. Antes de usarlo en serio:
 
 - **Mapear los errores de ARCA** a mensajes claros y reintentar los timeouts
   (los servidores de ARCA a veces demoran; conviene reintentar antes de fallar).
-- **Definir cómo cargás los precios**: el Gestor asume precio neto (sin IVA) por
-  ítem. Si en el mostrador se cargan precios con IVA incluido, invertí el cálculo
-  antes de llamar al Gestor.
 - **Consultar el padrón** para validar el CUIT del receptor antes de emitir factura A.
 - **Completar los datos legales del emisor** en el `.env` real (domicilio,
   Ingresos Brutos, inicio de actividades) para que el PDF sea válido.

@@ -54,8 +54,8 @@ export class FacturacionGestor {
   ) {}
 
   async emitirFactura(dto: CrearFacturaDto): Promise<Comprobante> {
-    const desglose = Comprobante.calcularDesglose(dto.items);
-    const detalle = Comprobante.armarDetalle(dto.items);
+    const desglose = Comprobante.calcularDesglose(dto.tipo, dto.items);
+    const detalle = Comprobante.armarDetalle(dto.tipo, dto.items);
     const condicionIvaReceptor = Comprobante.condicionIvaRequerida(
       dto.tipo,
       dto.receptor.condicionIva,

@@ -24,12 +24,19 @@ async function main() {
 
   // El cálculo (agrupar por alícuota, totalizar) es responsabilidad del
   // dominio: este script, como el Gestor, solo llama a Comprobante y delega.
-  const desglose = Comprobante.calcularDesglose([
-    { cantidad: 1, precioUnitario: 100, ivaPorcentaje: 21 },
+  // En Factura B el precio cargado va CON IVA incluido (caso real verificado
+  // contra el facturador de ARCA): 12100 con IVA 21% -> neto 10000, IVA 2100.
+  const desglose = Comprobante.calcularDesglose('B', [
+    { cantidad: 1, precioUnitario: 12100, ivaPorcentaje: 21 },
   ]);
   const totales = Comprobante.totalizar(desglose);
+  if (totales.importeNeto !== 10000 || totales.importeIva !== 2100 || totales.importeTotal !== 12100) {
+    throw new Error(
+      `Cálculo de Factura B no coincide con el caso verificado: ${JSON.stringify(totales)}`,
+    );
+  }
 
-  console.log('\n2) Emitiendo Factura B a consumidor final (neto 100, IVA 21%)...');
+  console.log('\n2) Emitiendo Factura B a consumidor final (precio con IVA incluido 12100, neto 10000, IVA 21%)...');
   try {
     const resultado = await provider.solicitarCae({
       tipoFactura: 'B',

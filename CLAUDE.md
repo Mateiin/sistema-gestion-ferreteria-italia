@@ -178,8 +178,10 @@ CAE). Primer CAE obtenido con una Factura B.**
   + el desglose de IVA por alícuota (`ivaDesglose`, necesario para poder
   anularlo después con una NC) + `condicionIvaReceptor` (solo Factura A) +
   `detalle` (snapshot de ítems para el PDF) + `fecha` (CbteFch, para el PDF y
-  el QR). Ahí vive la lógica: `calcularDesglose`/`totalizar` (agrupan ítems
-  por alícuota), `armarDetalle` (snapshot por ítem, sin agrupar),
+  el QR). Ahí vive la lógica: `calcularImportesLinea` (neto/IVA de una línea
+  según si el tipo trae el precio neto —A— o con IVA incluido —B/C—),
+  `calcularDesglose`/`totalizar` (agrupan ítems por alícuota, redondeando una
+  sola vez por grupo), `armarDetalle` (snapshot por ítem, sin agrupar),
   `condicionIvaRequerida`, `crearAutorizado` (Creator), y
   `prepararNotaCredito`/`registrarNotaCredito` (validan si se puede anular y
   arman/registran la NC, incluido el `detalle` que se hereda a la NC). Tira
@@ -393,11 +395,30 @@ Hecho:
       desincronizada con `dist/` y `npm run build` terminaba "exitoso" con la
       mitad de los archivos sin emitir (pasó dos veces en esta sesión, antes
       de sacarlo).
+- [x] **Qué representa `precioUnitario` según el tipo de comprobante**
+      (confirmado contra el facturador de ARCA): en **Factura A es NETO** (se
+      suma el IVA); en **Factura B (y C) ya viene CON IVA incluido** (se
+      extrae el neto: `neto = importe / (1 + ivaPorcentaje/100)`). Antes se
+      asumía siempre neto, lo cual daba un total mal calculado en toda
+      Factura B. `Comprobante.calcularImportesLinea(tipoFactura, ...)` es el
+      Information Expert que rama según el tipo; lo usan `calcularDesglose` y
+      `armarDetalle`. **Redondeo:** se agrupa por alícuota SIN redondear
+      línea a línea, y se redondea una sola vez el neto/IVA de cada grupo
+      (redondear por línea y sumar da resultados que no cuadran con lo que
+      calcula ARCA). Verificado con los dos casos reales del facturador de
+      ARCA (Factura B: precio 12100 con IVA 21% → neto 10000, IVA 2100, total
+      12100; Factura A: precio neto 10000 con IVA 21% → total 12100) — contra
+      ARCA de verdad (`npm run probar:fe`, CAE 86280551825882) y vía HTTP
+      completo (Gestor + persistencia). Test puro y offline de estos casos en
+      `scripts/probar-calculo-iva.ts` (`npm run probar:calculo`).
+      **Pendiente para el front (documentado, no implementado):** la pantalla
+      de carga tiene que dejar explícito qué precio está pidiendo según el
+      tipo elegido — en B/C es el precio final (con IVA), en A es el neto. Es
+      la misma confusión en la que cayó el cálculo del backend: si la UI no
+      lo aclara, el operador la va a errar.
 - [ ] Confirmar persistencia del comprobante y que la numeración se lleve contra
       lo que dice ARCA (no un contador propio).
 - [ ] Selector de IVA (21% / 10,5%) en el front cuando se arme la pantalla Angular.
-- [ ] Confirmar con el suegro: ¿precios netos o con IVA incluido? (si es con IVA,
-      al `precioUnitario` va el neto = precio ÷ 1,21).
 - [ ] Confirmar condición de IVA del receptor para Factura A.
 - [ ] Confirmar si el local necesita ventas/stock a nivel producto o solo caja +
       ctacte + facturación.
