@@ -1,0 +1,352 @@
+/* Estilos globales. Pensado para uso de mostrador: botones grandes, poco
+   scroll, contraste claro. Nada de librerías de diseño: CSS simple y directo. */
+
+:root {
+  --color-fondo: #f4f5f7;
+  --color-superficie: #ffffff;
+  --color-texto: #1f2430;
+  --color-texto-tenue: #5a6270;
+  --color-borde: #d7dbe3;
+  --color-primario: #1d5fbf;
+  --color-primario-hover: #17509f;
+  --color-peligro: #c0392b;
+  --color-peligro-hover: #9c2e21;
+  --color-exito: #1f8a4c;
+  --color-advertencia: #b9770e;
+  --radio: 8px;
+  --sombra: 0 1px 3px rgba(0, 0, 0, 0.08);
+  font-size: 16px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color: var(--color-texto);
+  background: var(--color-fondo);
+}
+
+h1,
+h2,
+h3 {
+  margin: 0 0 0.5rem;
+  line-height: 1.2;
+}
+
+h1 {
+  font-size: 1.5rem;
+}
+h2 {
+  font-size: 1.2rem;
+}
+h3 {
+  font-size: 1.05rem;
+}
+
+p {
+  margin: 0 0 0.75rem;
+}
+
+a {
+  color: var(--color-primario);
+}
+
+.contenedor {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.tarjeta {
+  background: var(--color-superficie);
+  border: 1px solid var(--color-borde);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+}
+
+/* Botones grandes, fáciles de tocar en un mostrador */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 0.65rem 1.1rem;
+  min-height: 44px;
+  border-radius: var(--radio);
+  border: 1px solid transparent;
+  cursor: pointer;
+  background: var(--color-superficie);
+  color: var(--color-texto);
+  border-color: var(--color-borde);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn:hover:not(:disabled) {
+  filter: brightness(0.97);
+}
+
+.btn-primario {
+  background: var(--color-primario);
+  border-color: var(--color-primario);
+  color: white;
+}
+.btn-primario:hover:not(:disabled) {
+  background: var(--color-primario-hover);
+}
+
+.btn-peligro {
+  background: var(--color-peligro);
+  border-color: var(--color-peligro);
+  color: white;
+}
+.btn-peligro:hover:not(:disabled) {
+  background: var(--color-peligro-hover);
+}
+
+.btn-chico {
+  min-height: 32px;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.85rem;
+}
+
+/* Formularios */
+.campo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.85rem;
+}
+
+.campo label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.campo .ayuda {
+  font-size: 0.8rem;
+  color: var(--color-texto-tenue);
+}
+
+.campo .campo-error {
+  font-size: 0.8rem;
+  color: var(--color-peligro);
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--color-borde);
+  border-radius: var(--radio);
+  background: var(--color-superficie);
+  color: var(--color-texto);
+  min-height: 44px;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid var(--color-primario);
+  outline-offset: 1px;
+}
+
+.fila-formulario {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.fila-formulario > .campo {
+  flex: 1 1 180px;
+}
+
+/* Tablas */
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.55rem 0.6rem;
+  border-bottom: 1px solid var(--color-borde);
+  font-size: 0.95rem;
+}
+
+th {
+  color: var(--color-texto-tenue);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+tr.fila-clic {
+  cursor: pointer;
+}
+tr.fila-clic:hover {
+  background: var(--color-fondo);
+}
+
+/* Insignias de estado */
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.badge-abierta {
+  background: #e3edfb;
+  color: var(--color-primario);
+}
+.badge-emitida {
+  background: #e2f4e9;
+  color: var(--color-exito);
+}
+.badge-anulada {
+  background: #f6e3e1;
+  color: var(--color-peligro);
+}
+
+/* Avisos */
+.banner {
+  padding: 0.75rem 1rem;
+  border-radius: var(--radio);
+  margin-bottom: 1rem;
+  font-size: 0.95rem;
+}
+.banner-error {
+  background: #fbeae8;
+  color: var(--color-peligro);
+  border: 1px solid #f0c6c1;
+}
+.banner-exito {
+  background: #e6f6ec;
+  color: var(--color-exito);
+  border: 1px solid #bfe6cd;
+}
+.banner-info {
+  background: #eaf1fc;
+  color: var(--color-primario);
+  border: 1px solid #c9dcf5;
+}
+.banner-advertencia {
+  background: #fdf3e2;
+  color: var(--color-advertencia);
+  border: 1px solid #f2ddb0;
+}
+
+/* Spinner */
+.spinner {
+  display: inline-block;
+  width: 1.1rem;
+  height: 1.1rem;
+  border: 3px solid rgba(0, 0, 0, 0.15);
+  border-top-color: var(--color-primario);
+  border-radius: 50%;
+  animation: girar 0.7s linear infinite;
+  vertical-align: middle;
+}
+
+@keyframes girar {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.texto-tenue {
+  color: var(--color-texto-tenue);
+  font-size: 0.9rem;
+}
+
+/* Layout reusado en las pantallas de listado (Clientes, Cuentas por cobrar) */
+.cabecera-lista {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.campo-buscador {
+  max-width: 360px;
+}
+
+.acciones-formulario {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  align-items: center;
+}
+
+h1 .badge {
+  margin-left: 0.6rem;
+  vertical-align: middle;
+}
+
+.total-ficha {
+  font-size: 1.3rem;
+  font-weight: 700;
+  text-align: right;
+  margin: 0.75rem 0 0;
+}
+
+.acciones-ficha {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+
+.opcion-radio {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 500;
+  margin-bottom: 0.4rem;
+}
+.opcion-radio input {
+  min-height: auto;
+  width: auto;
+}
+
+/* Modal simple (sin librería): fondo semitransparente + tarjeta centrada */
+.modal-fondo {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 20, 30, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 100;
+}
+
+.modal {
+  background: var(--color-superficie);
+  border-radius: var(--radio);
+  padding: 1.25rem 1.5rem;
+  width: 100%;
+  max-width: 420px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+}

@@ -4,11 +4,10 @@ Este archivo le da contexto a Claude para trabajar en este proyecto. Leelo al
 inicio de cada sesión. Manténganlo actualizado: un CLAUDE.md viejo manda a
 construir sobre supuestos que ya no valen.
 
-> Última actualización: Ventas (Ficha) Fase 2 implementada y probada de punta a
-> punta contra ARCA homologación — presupuesto no fiscal, facturar la ficha
-> (tipo de comprobante derivado del cliente, CONTADO/CUENTA_CORRIENTE) y
-> cuenta corriente real (cargo automático, pagos, saldo, "quién me debe").
-> Facturación ahora también guarda razón social y domicilio del receptor.
+> Última actualización: arrancó el frontend — Angular Fase 1 en
+> `sistema-local/frontend/`, probado de punta a punta contra el backend real
+> en homologación (Playwright): clientes, ficha con líneas, presupuesto,
+> facturar (A/B según cliente) y cuenta corriente, todo desde la pantalla.
 > Próximo: módulo de caja y sistema del depósito.
 
 ---
@@ -40,6 +39,9 @@ Corren en dos computadoras distintas y **por ahora no se comunican entre sí**.
    2) — clientes, ficha con líneas, presupuesto, facturar la ficha y cuenta
    corriente real. Ver sección "Ventas (Ficha)".
 3. **Facturación electrónica (ARCA)**: **COMPLETA y probada en homologación.**
+4. **Frontend (Angular)**: Fase 1 **implementada** — circuito núcleo (clientes,
+   ficha, facturar, cuenta corriente). Caja y depósito quedan afuera hasta que
+   existan esos módulos de backend. Ver sección "Frontend".
 
 > **Regla de consistencia:** el **código de producto** debe ser consistente entre
 > ambos sistemas desde el arranque, para el día que haya que cruzar stock.
@@ -49,7 +51,8 @@ Corren en dos computadoras distintas y **por ahora no se comunican entre sí**.
 ## Stack técnico
 
 - **Backend:** NestJS + TypeORM · **DB:** PostgreSQL · **Frontend:** Angular
-  (standalone) — no arrancado · **Infra:** Docker Compose (local/offline).
+  22 (standalone, sin NgModules) en `sistema-local/frontend/` — Fase 1 lista.
+  **Infra:** Docker Compose (local/offline).
 - **Lenguaje:** TypeScript · Node.js >= 18. El proyecto usa `tsx` para scripts.
 
 ---
@@ -102,8 +105,9 @@ maneja el WSAA y el cacheo del ticket.
   agrupada (no por línea). Redondear por línea da diferencias de centavos que
   ARCA rechaza. Verificado: 3 ítems misma alícuota → 10165.29 agrupando vs
   10165.28 por línea.
-- Front (pendiente): la pantalla de carga debe dejar EXPLÍCITO si el precio va con
-  o sin IVA según el tipo, o el operador se equivoca (nos pasó a nosotros).
+- Front: la pantalla de carga de la ficha (`ventas-ficha`) ya deja esto
+  EXPLÍCITO con un label dinámico según el tipo de factura del cliente — ver
+  sección "Frontend".
 
 ### Qué se envía a ARCA y qué no
 WSFEv1 **no recibe líneas de detalle**: solo totales por alícuota. Por lo tanto,
@@ -306,14 +310,85 @@ El precio que se carga en una línea de la ficha sigue la MISMA convención que
 factura ya no lo elige quien factura: lo **deriva el cliente**
 (`Cliente.tipoFacturaCorrespondiente()`). Concretamente: para un cliente
 Responsable Inscripto (Factura A) el precio cargado en la línea tiene que ser
-el **NETO** (sin IVA); para el resto (Factura B) va **con IVA incluido**. Hoy
-nada en la ficha avisa esto al cargar la línea — es la misma confusión ya
-documentada para el front de facturación directa, pero acá es más fácil
-pisarla: la cooperativa de agua (cliente real, RI) hay que cargarle precio
-neto, y si alguien la carga con IVA incluido por hábito, la Factura A sale mal
-sin que nada lo marque. **Pendiente:** confirmar con el suegro y, cuando se
-arme el front, mostrar explícitamente qué tipo de precio corresponde según el
-cliente elegido.
+el **NETO** (sin IVA); para el resto (Factura B) va **con IVA incluido**. Es
+fácil pisarla: la cooperativa de agua (cliente real, RI) hay que cargarle
+precio neto, y si alguien la carga con IVA incluido por hábito, la Factura A
+sale mal sin que nada lo marque a nivel de datos. El frontend (ver sección
+"Frontend") ya deja esto explícito en la pantalla de carga (label dinámico
+según el cliente); lo que sigue **pendiente** es confirmar el supuesto en
+sí con el suegro, no la UI.
+
+---
+
+## Frontend — `sistema-local/frontend/` — Fase 1 implementada
+
+Angular 22, standalone (sin NgModules, sin zoneless todavía), componentes con
+`signal` + Reactive Forms. Fase 1 = el circuito núcleo (clientes, ficha,
+facturar, cuenta corriente). **Nada de caja ni depósito** — esos módulos de
+backend no existen todavía.
+
+### Estructura
+- `core/models/` — interfaces TS espejo de las entidades del backend
+  (`Cliente`, `Venta`/`LineaVenta`, `Comprobante`, `MovimientoCtaCte`). Ojo:
+  los `numeric`/`bigint` de Postgres llegan como **string** en el JSON (TypeORM
+  no los convierte solo), así que esos campos están tipados `number | string`
+  a propósito — no asumir que son número.
+- `core/services/` — `ClientesService`, `VentasService`, `FacturacionService`:
+  wrappers finos de `HttpClient`, un método por endpoint, rutas relativas
+  (`/clientes`, `/ventas/...`).
+- `core/interceptors/api-url.interceptor.ts` — el único lugar que conoce
+  `environment.apiBaseUrl`: antepone la base a cualquier request que empiece
+  con `/`. Cambiar de ambiente es cambiar solo `environment.ts`.
+- `layout/shell/` — nav a Ventas / Clientes / Cuentas por cobrar.
+- `features/clientes/` — `clientes-lista` (buscador con debounce) y
+  `cliente-formulario` (alta y edición, mismo componente, reactive form).
+- `features/ventas/ventas-ficha/` — **la pantalla principal**. Dos estados: sin
+  `ventaId` en la ruta muestra el buscador de cliente (`POST /ventas/abrir` al
+  elegir uno y navega a `/ventas/:id`); con `ventaId` muestra la ficha. El
+  label del campo de precio es dinámico según
+  `tipoFacturaDeCliente(cliente)` (mismo mapeo que
+  `Cliente.tipoFacturaCorrespondiente()` del backend, duplicado a propósito en
+  `core/models/cliente.model.ts` para no acoplar el front a las entidades de
+  TypeORM). "Facturar" abre un modal simple (sin librería, `position: fixed` +
+  overlay) para elegir Contado/Cuenta corriente.
+- `features/ventas/fichas-abiertas/` — `GET /ventas/abiertas`.
+- `features/cuentas/` — `cuentas-lista` (`GET /clientes/con-saldo`) y
+  `cuenta-detalle` (`GET /clientes/:id/cuenta` + registrar pago).
+- `shared/utils/errores.ts` — `extraerMensajeError` lee `err.error.message`
+  (string o array de class-validator) para mostrar el error real del backend,
+  no uno genérico. Hay una variante `extraerMensajeErrorAsync` para las
+  llamadas con `responseType: 'blob'` (los PDF): si el backend rechaza, Angular
+  igual entrega el cuerpo como `Blob`, no como JSON, hay que leerlo aparte.
+- `shared/utils/pdf.ts` — los PDF de presupuesto/factura se piden por HTTP
+  (uno es `POST`) y se abren con `URL.createObjectURL` + `window.open`, no con
+  un `<a href>` directo.
+
+### Gotchas ya pisados (para no repetirlos)
+- **`tsconfig.json`/`tsconfig.build.json` del backend no tenían `include`**:
+  compilaban por default TODO `.ts` bajo `sistema-local/`, así que al crear
+  `frontend/` el build del backend explotaba tratando de compilarlo con su
+  `rootDir`. Los dos tsconfig del backend excluyen `frontend` ahora
+  (`tsconfig.build.json` tiene su propio `exclude` que **reemplaza** al de
+  `tsconfig.json` al extender, no lo hereda — hubo que tocar los dos).
+- **CORS**: `main.ts` del backend tiene `app.enableCors()` (front y back en
+  puertos distintos de la misma PC).
+- **`<option [value]="...">` con números rompe el `FormControl`**: un
+  `<select>` nativo solo guarda strings, así que `docTipo`, `ivaPorcentaje` y
+  `unidadMedida` (todos `number` en el DTO) tienen que usar
+  `[ngValue]`, no `[value]`, si no el backend devuelve 400 (`docTipo must be
+  an integer number`) apenas el usuario toca el `<select>`.
+- **Locale**: sin configurar, el `DecimalPipe` usa `en-US` (`1,300.00`) en vez
+  de `es-AR` (`1.300,00`) como el resto del sistema. `app.config.ts` registra
+  `@angular/common/locales/es-AR` y provee `LOCALE_ID: 'es-AR'`.
+
+### Probado de punta a punta (Playwright, contra ARCA homologación real)
+Cliente Consumidor Final → ficha con 2 líneas → presupuesto (PDF sin CAE,
+`201`, `application/pdf`) → facturar Contado → Factura B con CAE real, ficha
+EMITIDA, botón para ver el PDF de la factura (`200`, `application/pdf`). Cliente
+Responsable Inscripto con domicilio → label de precio en "NETO" → facturar
+Cuenta corriente → Factura A con CAE real → aparece en Cuentas por cobrar con
+el saldo correcto (neto + IVA) → pago parcial → saldo baja y el historial
+muestra CARGO y PAGO. Cero errores de consola en todo el recorrido.
 
 ---
 
@@ -369,13 +444,17 @@ Hecho:
 - [x] Factura A: razón social y domicilio del receptor (`razonSocialReceptor`/
       `domicilioReceptor` en `Comprobante`, opcionales en `ReceptorDto`,
       completados siempre desde `Cliente` al facturar la ficha).
+- [x] **Frontend Fase 1** (`sistema-local/frontend/`, Angular 22 standalone):
+      circuito núcleo — clientes (ABM), ficha (buscar/abrir cliente, cargar
+      líneas con selector de IVA 21/10,5 y label de precio dinámico según el
+      cliente, presupuesto, facturar con modal de condición de venta), y
+      cuentas por cobrar (saldo, movimientos, registrar pago). Probado de
+      punta a punta con Playwright contra ARCA homologación real, sin errores
+      de consola. Detalle completo en "Frontend".
 
 Pendiente:
-- [ ] **Módulo de caja** (montos in/out + arqueo).
-- [ ] **Sistema del depósito** (ABM de productos).
-- [ ] Front en Angular (incluye el selector de IVA 21/10,5 y dejar explícito
-      qué tipo de precio corresponde al cargar una línea, según el tipo de
-      factura del cliente — ver el supuesto a confirmar en "Ventas (Ficha)").
+- [ ] **Módulo de caja** (montos in/out + arqueo) — ni backend ni frontend.
+- [ ] **Sistema del depósito** (ABM de productos) — ni backend ni frontend.
 - [ ] **Factura C**: sumar CbteTipo 11 (la lógica de IVA extraído ya existe en
       `calcularImportesLinea`). Pendiente de confirmar con el titular si la
       necesita (hoy el emisor es RI, así que `Cliente.tipoFacturaCorrespondiente()`

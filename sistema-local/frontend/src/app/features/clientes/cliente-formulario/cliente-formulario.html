@@ -1,0 +1,79 @@
+<h1>{{ clienteId() ? 'Editar cliente' : 'Nuevo cliente' }}</h1>
+
+@if (error()) {
+  <p class="banner banner-error">{{ error() }}</p>
+}
+
+@if (cargando()) {
+  <p><span class="spinner"></span> Cargando cliente…</p>
+} @else {
+  <form class="tarjeta" [formGroup]="form" (ngSubmit)="guardar()">
+    <div class="campo">
+      <label for="razonSocial">Razón social</label>
+      <input id="razonSocial" type="text" formControlName="razonSocial" />
+      @if (form.controls.razonSocial.invalid && form.controls.razonSocial.touched) {
+        <span class="campo-error">Es obligatorio.</span>
+      }
+    </div>
+
+    <div class="fila-formulario">
+      <div class="campo">
+        <label for="docTipo">Tipo de documento</label>
+        <select id="docTipo" formControlName="docTipo">
+          @for (opcion of docTipoOpciones; track opcion.valor) {
+            <option [ngValue]="opcion.valor">{{ opcion.etiqueta }}</option>
+          }
+        </select>
+      </div>
+
+      <div class="campo">
+        <label for="docNro">Número de documento</label>
+        <input id="docNro" type="number" min="0" formControlName="docNro" />
+        @if (form.controls.docNro.invalid && form.controls.docNro.touched) {
+          <span class="campo-error">Ingresá un número válido.</span>
+        }
+      </div>
+    </div>
+
+    <div class="campo">
+      <label for="condicionIva">Condición frente al IVA</label>
+      <select id="condicionIva" formControlName="condicionIva">
+        @for (opcion of condicionIvaOpciones; track opcion) {
+          <option [value]="opcion">{{ condicionIvaLegible[opcion] }}</option>
+        }
+      </select>
+      <span class="ayuda">Define si le corresponde Factura A (Responsable Inscripto) o B (el resto).</span>
+    </div>
+
+    <div class="campo">
+      <label for="domicilio">Domicilio</label>
+      <input id="domicilio" type="text" formControlName="domicilio" />
+      <span class="ayuda">Se imprime en la Factura A.</span>
+    </div>
+
+    <div class="fila-formulario">
+      <div class="campo">
+        <label for="email">Email</label>
+        <input id="email" type="email" formControlName="email" />
+        @if (form.controls.email.invalid && form.controls.email.touched) {
+          <span class="campo-error">Ingresá un email válido.</span>
+        }
+      </div>
+
+      <div class="campo">
+        <label for="telefono">Teléfono</label>
+        <input id="telefono" type="text" formControlName="telefono" />
+      </div>
+    </div>
+
+    <div class="acciones-formulario">
+      <button type="submit" class="btn btn-primario" [disabled]="guardando()">
+        @if (guardando()) {
+          <span class="spinner"></span>
+        }
+        Guardar
+      </button>
+      <a class="btn" routerLink="/clientes">Cancelar</a>
+    </div>
+  </form>
+}

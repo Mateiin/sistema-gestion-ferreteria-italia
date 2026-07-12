@@ -1,0 +1,86 @@
+<div class="cabecera-lista">
+  <h1>Cuenta de {{ cliente()?.razonSocial }}</h1>
+  <a class="btn" routerLink="/cuentas-por-cobrar">← Volver</a>
+</div>
+
+@if (error()) {
+  <p class="banner banner-error">{{ error() }}</p>
+}
+
+@if (cargando()) {
+  <p><span class="spinner"></span> Cargando cuenta…</p>
+} @else if (cuenta(); as c) {
+  <div class="tarjeta">
+    <p class="total-ficha">Saldo: $ {{ c.saldo | number: '1.2-2' }}</p>
+
+    @if (!mostrarFormularioPago()) {
+      <button type="button" class="btn btn-primario" (click)="mostrarFormularioPago.set(true)">
+        Registrar pago
+      </button>
+    } @else {
+      <form class="formulario-pago" [formGroup]="pagoForm" (ngSubmit)="registrarPago()">
+        @if (errorPago()) {
+          <p class="banner banner-error">{{ errorPago() }}</p>
+        }
+        <div class="fila-formulario">
+          <div class="campo">
+            <label for="monto">Monto</label>
+            <input id="monto" type="number" step="0.01" min="0.01" formControlName="monto" />
+            @if (pagoForm.controls.monto.invalid && pagoForm.controls.monto.touched) {
+              <span class="campo-error">Ingresá un monto mayor a 0.</span>
+            }
+          </div>
+          <div class="campo">
+            <label for="descripcion">Descripción (opcional)</label>
+            <input id="descripcion" type="text" formControlName="descripcion" placeholder="Ej: pago en efectivo" />
+          </div>
+        </div>
+        <div class="acciones-formulario">
+          <button type="submit" class="btn btn-primario" [disabled]="registrandoPago()">
+            @if (registrandoPago()) { <span class="spinner"></span> }
+            Confirmar pago
+          </button>
+          <button type="button" class="btn" (click)="mostrarFormularioPago.set(false)" [disabled]="registrandoPago()">
+            Cancelar
+          </button>
+        </div>
+      </form>
+    }
+  </div>
+
+  <div class="tarjeta">
+    <h2>Movimientos</h2>
+    @if (c.movimientos.length === 0) {
+      <p class="texto-tenue">Todavía no hay movimientos.</p>
+    } @else {
+      <table>
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Tipo</th>
+            <th>Monto</th>
+            <th>Detalle</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (mov of c.movimientos; track mov.id) {
+            <tr>
+              <td>{{ mov.fecha | date: 'dd/MM/yyyy' }}</td>
+              <td>
+                <span
+                  class="badge"
+                  [class.badge-emitida]="mov.tipo === TipoMovimientoCtaCte.PAGO"
+                  [class.badge-anulada]="mov.tipo === TipoMovimientoCtaCte.CARGO"
+                >{{ mov.tipo }}</span>
+              </td>
+              <td>$ {{ mov.monto | number: '1.2-2' }}</td>
+              <td class="texto-tenue">
+                {{ mov.descripcion || (mov.comprobanteId ? 'Factura en cuenta corriente' : '—') }}
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+  </div>
+}

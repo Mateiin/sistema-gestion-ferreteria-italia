@@ -1,0 +1,46 @@
+<div class="cabecera-lista">
+  <h1>Clientes</h1>
+  <a class="btn btn-primario" routerLink="/clientes/nuevo">+ Nuevo cliente</a>
+</div>
+
+<div class="campo campo-buscador">
+  <label for="buscador">Buscar por nombre</label>
+  <input id="buscador" type="text" [formControl]="buscador" placeholder="Escribí para buscar…" />
+</div>
+
+@if (error()) {
+  <p class="banner banner-error">{{ error() }}</p>
+}
+
+@if (cargando()) {
+  <p><span class="spinner"></span> Buscando clientes…</p>
+} @else if (clientes().length === 0) {
+  <p class="texto-tenue">No se encontraron clientes.</p>
+} @else {
+  <div class="tarjeta">
+    <table>
+      <thead>
+        <tr>
+          <th>Razón social</th>
+          <th>Documento</th>
+          <th>Condición IVA</th>
+          <th>Teléfono</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (cliente of clientes(); track cliente.id) {
+          <tr>
+            <td>{{ cliente.razonSocial }}</td>
+            <td>{{ cliente.docNro }}</td>
+            <td>{{ condicionIvaLegible(cliente) }}</td>
+            <td>{{ cliente.telefono || '—' }}</td>
+            <td>
+              <a class="btn btn-chico" [routerLink]="['/clientes', cliente.id, 'editar']">Editar</a>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+}

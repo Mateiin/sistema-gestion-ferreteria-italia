@@ -1,0 +1,14 @@
+<header class="barra">
+  <div class="barra-contenido">
+    <span class="marca">Ferretería — Local</span>
+    <nav class="nav">
+      <a routerLink="/ventas" routerLinkActive="activo" [routerLinkActiveOptions]="{ exact: false }">Ventas</a>
+      <a routerLink="/clientes" routerLinkActive="activo">Clientes</a>
+      <a routerLink="/cuentas-por-cobrar" routerLinkActive="activo">Cuentas por cobrar</a>
+    </nav>
+  </div>
+</header>
+
+<main class="contenedor">
+  <router-outlet />
+</main>

@@ -1,0 +1,38 @@
+<div class="cabecera-lista">
+  <h1>Fichas abiertas</h1>
+  <a class="btn" routerLink="/ventas">← Volver a Ventas</a>
+</div>
+<p class="texto-tenue">Quién tiene ficha abierta y por cuánto.</p>
+
+@if (error()) {
+  <p class="banner banner-error">{{ error() }}</p>
+}
+
+@if (cargando()) {
+  <p><span class="spinner"></span> Cargando…</p>
+} @else if (fichas().length === 0) {
+  <p class="texto-tenue">No hay fichas abiertas en este momento.</p>
+} @else {
+  <div class="tarjeta">
+    <table>
+      <thead>
+        <tr>
+          <th>Cliente</th>
+          <th>Líneas</th>
+          <th>Total</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (ficha of fichas(); track ficha.id) {
+          <tr class="fila-clic" (click)="irAFicha(ficha)">
+            <td>{{ ficha.cliente.razonSocial }}</td>
+            <td>{{ ficha.lineas.length }}</td>
+            <td>$ {{ ficha.total | number: '1.2-2' }}</td>
+            <td><button type="button" class="btn btn-chico">Abrir</button></td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+}

@@ -5,6 +5,8 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  // El frontend Angular corre en otro puerto (ng serve, 4200) en la misma PC.
+  app.enableCors();
   await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();

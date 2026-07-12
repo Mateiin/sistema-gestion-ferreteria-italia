@@ -1,0 +1,248 @@
+@if (error()) {
+  <p class="banner banner-error">{{ error() }}</p>
+}
+
+@if (!venta() && !cargandoFicha()) {
+  <!-- Estado: buscar cliente para abrir su ficha -->
+  <div class="cabecera-lista">
+    <h1>Ventas</h1>
+    <a class="btn" routerLink="/ventas/abiertas">Ver fichas abiertas →</a>
+  </div>
+  <p class="texto-tenue">Buscá un cliente para abrir (o recuperar) su ficha.</p>
+
+  <div class="campo campo-buscador">
+    <label for="buscadorCliente">Cliente</label>
+    <input id="buscadorCliente" type="text" [formControl]="buscador" placeholder="Escribí el nombre…" autofocus />
+  </div>
+
+  @if (buscandoClientes()) {
+    <p><span class="spinner"></span> Buscando…</p>
+  } @else if (clientesEncontrados().length === 0) {
+    <p class="texto-tenue">
+      No se encontraron clientes. <a routerLink="/clientes/nuevo">Crear cliente nuevo</a>
+    </p>
+  } @else {
+    <div class="tarjeta">
+      <table>
+        <thead>
+          <tr>
+            <th>Razón social</th>
+            <th>Documento</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (cliente of clientesEncontrados(); track cliente.id) {
+            <tr>
+              <td>{{ cliente.razonSocial }}</td>
+              <td>{{ cliente.docNro }}</td>
+              <td>
+                <button
+                  type="button"
+                  class="btn btn-primario btn-chico"
+                  (click)="abrirFichaDeCliente(cliente)"
+                  [disabled]="abriendoFichaDe() === cliente.id"
+                >
+                  @if (abriendoFichaDe() === cliente.id) {
+                    <span class="spinner"></span>
+                  }
+                  Abrir ficha
+                </button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+} @else if (cargandoFicha()) {
+  <p><span class="spinner"></span> Cargando ficha…</p>
+} @else if (venta(); as v) {
+  <!-- Estado: ficha abierta o recuperada -->
+  <div class="cabecera-lista">
+    <h1>
+      Ficha de {{ v.cliente.razonSocial }}
+      <span
+        class="badge"
+        [class.badge-abierta]="v.estado === EstadoVenta.ABIERTA"
+        [class.badge-emitida]="v.estado === EstadoVenta.EMITIDA"
+        [class.badge-anulada]="v.estado === EstadoVenta.ANULADA"
+      >{{ v.estado }}</span>
+    </h1>
+    <button type="button" class="btn" (click)="volverABuscar()">← Buscar otro cliente</button>
+  </div>
+
+  @if (comprobanteRecienEmitido(); as comp) {
+    <p class="banner banner-exito">
+      Factura emitida: comprobante {{ numeroComprobante(comp) }}, CAE {{ comp.cae }}.
+      <button type="button" class="btn btn-chico" (click)="verPdfFactura(comp.id)" [disabled]="descargandoPdf()">
+        @if (descargandoPdf()) { <span class="spinner"></span> }
+        Ver PDF de la factura
+      </button>
+    </p>
+  } @else if (v.estado === EstadoVenta.EMITIDA) {
+    <p class="banner banner-info">
+      Esta ficha ya fue facturada.
+      <button type="button" class="btn btn-chico" (click)="verPdfFactura(v.comprobanteId)" [disabled]="descargandoPdf()">
+        @if (descargandoPdf()) { <span class="spinner"></span> }
+        Ver PDF de la factura
+      </button>
+    </p>
+  }
+
+  <div class="tarjeta">
+    <h2>Cliente</h2>
+    <p>
+      <strong>{{ v.cliente.razonSocial }}</strong> — {{ v.cliente.docNro }}
+      ({{ condicionIvaLegible[v.cliente.condicionIva] }})
+    </p>
+    @if (v.cliente.domicilio) {
+      <p class="texto-tenue">{{ v.cliente.domicilio }}</p>
+    }
+  </div>
+
+  @if (v.estado === EstadoVenta.ABIERTA) {
+    <div class="tarjeta">
+      <h2>Agregar línea</h2>
+      <p class="ayuda">
+        Este cliente corresponde a <strong>Factura {{ tipoFacturaCliente(v.cliente) }}</strong>:
+        cargá el {{ etiquetaPrecio(v.cliente) | lowercase }}.
+      </p>
+      <form [formGroup]="lineaForm" (ngSubmit)="agregarLinea()">
+        <div class="campo">
+          <label for="descripcion">Descripción</label>
+          <input id="descripcion" type="text" formControlName="descripcion" />
+          @if (lineaForm.controls.descripcion.invalid && lineaForm.controls.descripcion.touched) {
+            <span class="campo-error">Es obligatoria.</span>
+          }
+        </div>
+        <div class="fila-formulario">
+          <div class="campo">
+            <label for="cantidad">Cantidad</label>
+            <input id="cantidad" type="number" step="0.001" min="0" formControlName="cantidad" />
+          </div>
+          <div class="campo">
+            <label for="precioUnitario">{{ etiquetaPrecio(v.cliente) }}</label>
+            <input id="precioUnitario" type="number" step="0.01" min="0" formControlName="precioUnitario" />
+          </div>
+          <div class="campo">
+            <label for="ivaPorcentaje">Alícuota IVA</label>
+            <select id="ivaPorcentaje" formControlName="ivaPorcentaje">
+              @for (iva of ivaOpciones; track iva) {
+                <option [ngValue]="iva">{{ iva }}%</option>
+              }
+            </select>
+          </div>
+          <div class="campo">
+            <label for="unidadMedida">Unidad</label>
+            <select id="unidadMedida" formControlName="unidadMedida">
+              @for (u of unidadMedidaOpciones; track u.valor) {
+                <option [ngValue]="u.valor">{{ u.etiqueta }}</option>
+              }
+            </select>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primario" [disabled]="guardandoLinea()">
+          @if (guardandoLinea()) { <span class="spinner"></span> }
+          Agregar línea
+        </button>
+      </form>
+    </div>
+  }
+
+  <div class="tarjeta">
+    <h2>Líneas cargadas</h2>
+    @if (v.lineas.length === 0) {
+      <p class="texto-tenue">Todavía no hay líneas cargadas.</p>
+    } @else {
+      <table>
+        <thead>
+          <tr>
+            <th>Descripción</th>
+            <th>Cantidad</th>
+            <th>Unidad</th>
+            <th>Precio</th>
+            <th>IVA</th>
+            <th>Subtotal</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (linea of v.lineas; track linea.id) {
+            <tr>
+              <td>{{ linea.descripcion }}</td>
+              <td>{{ linea.cantidad }}</td>
+              <td>{{ unidadEtiqueta(linea.unidadMedida) }}</td>
+              <td>$ {{ linea.precioUnitario | number: '1.2-2' }}</td>
+              <td>{{ linea.ivaPorcentaje }}%</td>
+              <td>$ {{ subtotalLinea(linea.cantidad, linea.precioUnitario) | number: '1.2-2' }}</td>
+              <td>
+                @if (v.estado === EstadoVenta.ABIERTA) {
+                  <button type="button" class="btn btn-chico btn-peligro" (click)="quitarLinea(linea.id)">
+                    Quitar
+                  </button>
+                }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+    <p class="total-ficha">Total: $ {{ v.total | number: '1.2-2' }}</p>
+  </div>
+
+  <div class="acciones-ficha">
+    <button type="button" class="btn" (click)="imprimirPresupuesto()" [disabled]="generandoPresupuesto()">
+      @if (generandoPresupuesto()) { <span class="spinner"></span> }
+      Imprimir presupuesto
+    </button>
+    <span class="texto-tenue">No fiscal, no cierra la ficha — se puede pedir las veces que haga falta.</span>
+
+    @if (v.estado === EstadoVenta.ABIERTA) {
+      <button
+        type="button"
+        class="btn btn-primario"
+        (click)="abrirModalFacturar()"
+        [disabled]="v.lineas.length === 0"
+        [title]="v.lineas.length === 0 ? 'Cargá al menos una línea antes de facturar' : ''"
+      >
+        Facturar
+      </button>
+    }
+  </div>
+}
+
+@if (modalFacturarAbierto()) {
+  <div class="modal-fondo" (click)="cerrarModalFacturar()">
+    <div class="modal" (click)="$event.stopPropagation()">
+      <h2>Facturar ficha</h2>
+
+      @if (errorFacturar()) {
+        <p class="banner banner-error">{{ errorFacturar() }}</p>
+      }
+
+      <div class="campo">
+        <label>Condición de venta</label>
+        @for (opcion of condicionVentaOpciones; track opcion.valor) {
+          <label class="opcion-radio">
+            <input
+              type="radio"
+              name="condicionVenta"
+              [checked]="condicionVentaSeleccionada() === opcion.valor"
+              (change)="condicionVentaSeleccionada.set(opcion.valor)"
+            />
+            {{ opcion.etiqueta }}
+          </label>
+        }
+      </div>
+
+      <div class="acciones-formulario">
+        <button type="button" class="btn btn-primario" (click)="confirmarFacturar()" [disabled]="facturando()">
+          @if (facturando()) { <span class="spinner"></span> }
+          Confirmar
+        </button>
+        <button type="button" class="btn" (click)="cerrarModalFacturar()" [disabled]="facturando()">Cancelar</button>
+      </div>
+    </div>
+  </div>
+}

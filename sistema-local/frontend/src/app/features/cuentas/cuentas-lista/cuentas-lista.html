@@ -1,0 +1,33 @@
+<h1>Cuentas por cobrar</h1>
+<p class="texto-tenue">Clientes con saldo pendiente (fiado).</p>
+
+@if (error()) {
+  <p class="banner banner-error">{{ error() }}</p>
+}
+
+@if (cargando()) {
+  <p><span class="spinner"></span> Cargando…</p>
+} @else if (clientesConSaldo().length === 0) {
+  <p class="texto-tenue">No hay clientes con saldo pendiente.</p>
+} @else {
+  <div class="tarjeta">
+    <table>
+      <thead>
+        <tr>
+          <th>Cliente</th>
+          <th>Saldo</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (item of clientesConSaldo(); track item.cliente.id) {
+          <tr class="fila-clic" (click)="irACuenta(item)">
+            <td>{{ item.cliente.razonSocial }}</td>
+            <td>$ {{ item.saldo | number: '1.2-2' }}</td>
+            <td><button type="button" class="btn btn-chico">Ver cuenta</button></td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+}
