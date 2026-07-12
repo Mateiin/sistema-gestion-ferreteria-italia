@@ -81,6 +81,20 @@ export class ReceptorDto {
   @IsOptional()
   @IsEnum(CondicionIvaReceptorDto)
   condicionIva?: CondicionIvaReceptorDto;
+
+  /**
+   * No los pide WSFEv1 (igual que `unidadMedida`/`condicionVenta`): son solo
+   * para nuestro registro y el PDF impreso. Opcionales para no romper llamadas
+   * existentes; en la práctica son obligatorios para que la Factura A impresa
+   * tenga sentido.
+   */
+  @IsOptional()
+  @IsString()
+  razonSocial?: string;
+
+  @IsOptional()
+  @IsString()
+  domicilio?: string;
 }
 
 export class CrearFacturaDto {

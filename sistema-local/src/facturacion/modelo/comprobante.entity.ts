@@ -73,6 +73,9 @@ export interface DatosReceptor {
   docTipoReceptor: number;
   docNroReceptor: number;
   condicionIvaReceptor?: CondicionIvaReceptor;
+  /** No van a ARCA (igual que `detalle`/`condicionVenta`): registro local + PDF. */
+  razonSocialReceptor?: string;
+  domicilioReceptor?: string;
 }
 
 /** Snapshot de un ítem cargado, para poder reimprimir el detalle en el PDF */
@@ -118,6 +121,17 @@ export class Comprobante {
 
   @Column({ type: 'bigint' })
   docNroReceptor: number;
+
+  /**
+   * No los pide WSFEv1: son solo para nuestro registro y el PDF impreso
+   * (mismo patrón que `detalle`/`condicionVenta`). Nullable: comprobantes
+   * emitidos antes de esta columna no la tienen.
+   */
+  @Column({ type: 'varchar', nullable: true })
+  razonSocialReceptor?: string;
+
+  @Column({ type: 'varchar', nullable: true })
+  domicilioReceptor?: string;
 
   @Column({ type: 'numeric', precision: 15, scale: 2 })
   importeNeto: number;
@@ -325,6 +339,8 @@ export class Comprobante {
     comprobante.docTipoReceptor = datos.docTipoReceptor;
     comprobante.docNroReceptor = datos.docNroReceptor;
     comprobante.condicionIvaReceptor = datos.condicionIvaReceptor;
+    comprobante.razonSocialReceptor = datos.razonSocialReceptor;
+    comprobante.domicilioReceptor = datos.domicilioReceptor;
     comprobante.condicionVenta = datos.condicionVenta;
     comprobante.ivaDesglose = desglose;
     comprobante.detalle = datos.detalle;
@@ -386,6 +402,8 @@ export class Comprobante {
         docTipoReceptor: this.docTipoReceptor,
         docNroReceptor: Number(this.docNroReceptor),
         condicionIvaReceptor: this.condicionIvaReceptor as CondicionIvaReceptor,
+        razonSocialReceptor: this.razonSocialReceptor,
+        domicilioReceptor: this.domicilioReceptor,
         detalle: this.detalle,
         condicionVenta: this.condicionVenta,
       },

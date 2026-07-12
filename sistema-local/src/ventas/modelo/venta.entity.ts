@@ -22,12 +22,23 @@ function redondear(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+export class FichaNoAbiertaError extends Error {
+  constructor(public readonly estadoActual: EstadoVenta) {
+    super(`La ficha está ${estadoActual}: no se puede facturar`);
+  }
+}
+
+export class FichaSinLineasError extends Error {
+  constructor() {
+    super('La ficha no tiene líneas cargadas: no se puede facturar');
+  }
+}
+
 /**
  * MODELO. La "ficha" de venta a cuenta corriente: se le van agregando líneas
- * durante el mes hasta que se emite como factura o presupuesto (Fase 2, no
- * implementada — ver TODO(fase2-emision) en `VentasGestor`). El negocio
- * maneja una sola ficha ABIERTA por cliente a la vez; el índice único parcial
- * de abajo lo refuerza a nivel de base.
+ * durante el mes hasta que se emite como factura o presupuesto (Fase 2). El
+ * negocio maneja una sola ficha ABIERTA por cliente a la vez; el índice único
+ * parcial de abajo lo refuerza a nivel de base.
  */
 @Entity('ventas')
 @Index(['clienteId'], { unique: true, where: "estado = 'ABIERTA'" })
@@ -65,5 +76,31 @@ export class Venta {
       0,
     );
     return redondear(suma);
+  }
+
+  /**
+   * Valida que la ficha se pueda facturar: debe estar ABIERTA y tener al
+   * menos una línea cargada. Tira un error de dominio si no (el Gestor lo
+   * traduce a 400). El presupuesto no tiene esta restricción: se puede pedir
+   * en cualquier estado, las veces que haga falta.
+   */
+  validarPuedeFacturar(): void {
+    if (this.estado !== EstadoVenta.ABIERTA) {
+      throw new FichaNoAbiertaError(this.estado);
+    }
+    if (!this.lineas || this.lineas.length === 0) {
+      throw new FichaSinLineasError();
+    }
+  }
+
+  /** Se marca a sí misma emitida al facturarse (Information Expert). */
+  marcarEmitida(comprobanteId: string): void {
+    this.estado = EstadoVenta.EMITIDA;
+    this.comprobanteId = comprobanteId;
+  }
+
+  /** Nombre de archivo sugerido para el PDF del presupuesto. */
+  nombreArchivoPresupuesto(): string {
+    return `presupuesto-${this.id}.pdf`;
   }
 }

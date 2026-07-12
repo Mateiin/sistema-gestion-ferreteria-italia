@@ -4,10 +4,12 @@ Este archivo le da contexto a Claude para trabajar en este proyecto. Leelo al
 inicio de cada sesión. Manténganlo actualizado: un CLAUDE.md viejo manda a
 construir sobre supuestos que ya no valen.
 
-> Última actualización: Ventas (Ficha) Fase 1 implementada y probada de punta a
-> punta — clientes, ficha con líneas, invariante de una ficha abierta por
-> cliente reforzada con índice único parcial en la base. Facturación cerrada.
-> Próximo: Fase 2 (emitir la ficha + enganchar cuentas corrientes) y caja.
+> Última actualización: Ventas (Ficha) Fase 2 implementada y probada de punta a
+> punta contra ARCA homologación — presupuesto no fiscal, facturar la ficha
+> (tipo de comprobante derivado del cliente, CONTADO/CUENTA_CORRIENTE) y
+> cuenta corriente real (cargo automático, pagos, saldo, "quién me debe").
+> Facturación ahora también guarda razón social y domicilio del receptor.
+> Próximo: módulo de caja y sistema del depósito.
 
 ---
 
@@ -19,6 +21,8 @@ Sistemas). Doble propósito: **herramienta real** que el negocio va a usar, y
 
 El titular (la empresa, "Refrigeración Dimundo S.A.S.") es **Responsable
 Inscripto** y factura A y B.
+
+Siempre que pushees a github, hacelo desde mi cuenta, que no quede registro tuyo en el repo de github
 
 ---
 
@@ -32,9 +36,9 @@ Corren en dos computadoras distintas y **por ahora no se comunican entre sí**.
 
 ### Sistema B — Local (`sistema-local/`)
 1. **Caja**: montos que entran y salen, solo importes. Todavía no arrancado.
-2. **Ventas / Ficha + Cuentas corrientes (fiado)**: Fase 1 (clientes + ficha +
-   líneas) **implementada**. Emisión y cuentas corrientes reales (Fase 2)
-   **pendientes** — ver sección "Ventas (Ficha)".
+2. **Ventas / Ficha + Cuentas corrientes (fiado)**: **COMPLETA** (Fase 1 + Fase
+   2) — clientes, ficha con líneas, presupuesto, facturar la ficha y cuenta
+   corriente real. Ver sección "Ventas (Ficha)".
 3. **Facturación electrónica (ARCA)**: **COMPLETA y probada en homologación.**
 
 > **Regla de consistencia:** el **código de producto** debe ser consistente entre
@@ -117,10 +121,21 @@ previos a esos campos se detectan y avisan, no rompen).
 
 ### Condición de venta — gancho con el fiado
 Enum `CondicionVenta` (mismos 7 valores que ARCA: CONTADO, TARJETA_DEBITO,
-TARJETA_CREDITO, CUENTA_CORRIENTE, CHEQUE, TRANSFERENCIA_BANCARIA, OTRA). Cuando es
-`CUENTA_CORRIENTE`, la factura es fiada. Hay un `// TODO(ctacte)` en
-`FacturacionGestor.emitirFactura` donde el futuro módulo de cuentas corrientes
-debe disparar el cargo al cliente. **No implementado aún, a propósito.**
+TARJETA_CREDITO, CUENTA_CORRIENTE, CHEQUE, TRANSFERENCIA_BANCARIA, OTRA). Cuando
+es `CUENTA_CORRIENTE`, la factura es fiada. `FacturacionGestor.emitirFactura`
+YA NO conoce cuentas corrientes (se sacó el viejo `TODO(ctacte)`): el cargo lo
+crea `VentasGestor.facturarFicha`, DESPUÉS de recibir el `Comprobante` ya
+persistido — la dirección de dependencia es ventas → facturación, nunca al
+revés (facturación es un módulo reusable, no debe saber quién la llama ni por
+qué). Ver "Ventas (Ficha)" para el detalle completo del enganche.
+
+### Receptor: razón social y domicilio (para el PDF, no para ARCA)
+`ReceptorDto` (y `Comprobante`) ahora también guardan `razonSocial` y
+`domicilio` del receptor — igual que `unidadMedida`/`condicionVenta`, WSFEv1
+no los pide, son solo para el PDF impreso. Opcionales en el DTO (para no
+romper llamadas directas a `/facturacion/facturas` que no los manden), pero
+`VentasGestor.armarDtoFactura` los completa siempre desde el `Cliente` de la
+ficha. Se heredan a la Nota de Crédito igual que `detalle`.
 
 ### Homologación vs. Producción — ¡OJO, confunde!
 Ambientes separados, certificados distintos y **CUITs distintos** en esta etapa:
@@ -160,15 +175,19 @@ homologación (mezclar da "computador no autorizado").
   esquema fijo en Postgres).
 - El sistema del depósito, cuando arranque, necesitará su propia infra de
   migraciones (es otra base en otra PC).
+- Migraciones de Ventas Fase 2: `AddReceptorRazonSocialDomicilio` (2 columnas
+  nullable en `comprobantes`) y `AddCuentaCorriente` (tabla
+  `movimientos_cta_cte` + índice por `clienteId`, sin FK a `clientes` — mismo
+  criterio que `comprobanteId`, referencia sin constraint).
 
 ---
 
-## Ventas (Ficha) — `sistema-local/src/ventas/` — Fase 1 implementada
+## Ventas (Ficha) — `sistema-local/src/ventas/` — COMPLETA (Fase 1 + Fase 2)
 
 Este es el flujo real de trabajo del negocio, confirmado con el suegro. Es el
 "modelo rico" que se había puesto en pausa: **vuelve y es el corazón del local.**
-La Fase 1 (clientes + ficha + líneas, sin emisión) ya está construida y probada;
-la Fase 2 (emitir la ficha y enganchar cuentas corrientes) es lo que sigue.
+Fase 1 (clientes + ficha + líneas) y Fase 2 (presupuesto, facturar la ficha,
+cuenta corriente real) están construidas y probadas de punta a punta.
 
 ### Fase 1 (hecho): clientes + ficha + líneas
 - MMSC + GRASP, misma forma que `facturacion/`: `modelo/` (`Cliente`, `Venta`,
@@ -188,14 +207,56 @@ la Fase 2 (emitir la ficha y enganchar cuentas corrientes) es lo que sigue.
   parcial en la base (`UNIQUE (clienteId) WHERE estado = 'ABIERTA'`, migración
   `AddClientesYVentas`) que la garantiza aunque la capa de aplicación falle.
   Verificado insertando directo por SQL: la base rechaza el duplicado.
-- `Venta.comprobanteId` y el estado `EMITIDA` quedan preparados pero sin usar
-  todavía: `// TODO(fase2-emision)` en `VentasGestor` marca dónde va a ir
-  emitir la ficha como factura (reusando `FacturacionGestor`) o imprimirla
-  como presupuesto.
 - Probado de punta a punta: cliente → abrir ficha → 2 líneas → total correcto;
   reabrir la misma ficha no crea otra; `GET /ventas/abiertas` lista las
-  fichas abiertas con cliente y total (la futura "pestaña de cuentas
-  corrientes").
+  fichas abiertas con cliente y total.
+
+### Fase 2 (hecho): presupuesto, facturar la ficha y cuenta corriente
+- `POST /ventas/:id/presupuesto` — PDF NO fiscal (sin CAE, sin QR), rotulado
+  "Documento no válido como factura". Lo arma `PresupuestoPdfProvider`
+  (`ventas/pdf/`, adapter aparte del de facturación, arma desde `Venta` +
+  `Cliente`, no desde `Comprobante`) reusando `pdfmake` con el mismo criterio
+  de seguridad (`setUrlAccessPolicy(() => false)`). No cambia el estado de la
+  ficha ni ningún saldo — se puede pedir las veces que haga falta.
+- `POST /ventas/:id/facturar { condicionVenta }` (CONTADO o CUENTA_CORRIENTE)
+  — valida `Venta.validarPuedeFacturar()` (ABIERTA + al menos una línea,
+  `FichaNoAbiertaError`/`FichaSinLineasError` → 400), deriva el tipo de
+  factura del **cliente** (`Cliente.tipoFacturaCorrespondiente()`:
+  RESPONSABLE_INSCRIPTO → A, el resto → B — el emisor es RI, por eso no hay
+  Factura C acá), arma el `CrearFacturaDto` (receptor + líneas + condición de
+  venta) y llama a `FacturacionGestor.emitirFactura` (reuso directo, ver
+  `FacturacionModule.exports`).
+  **Orden crítico por el efecto externo:** primero ARCA (CAE, ya persistido
+  por el módulo de facturación); recién CON el CAE en mano, una transacción
+  de DB (`DataSource.transaction`) marca `Venta.marcarEmitida(comprobanteId)`
+  y — solo si `CUENTA_CORRIENTE` — crea el `MovimientoCtaCte` CARGO. Si ARCA
+  falla, la ficha queda intacta (ABIERTA). Si falla la transacción de DB con
+  el CAE ya emitido, **no se intenta deshacer el CAE** (no se puede): se
+  loguea fuerte (`Logger.error` con el CAE y el id del comprobante) para
+  intervención manual — el `Comprobante` ya está guardado y es recuperable
+  vinculándolo a mano.
+  `// TODO(caja)` en el mismo método: cuando exista el módulo de caja, ahí se
+  registra el ingreso de una factura CONTADO.
+- **Cuenta corriente real** (`modelo/movimiento-cta-cte.entity.ts` +
+  `gestor/cuenta-corriente.gestor.ts`): `MovimientoCtaCte` (CARGO/PAGO) es el
+  Information Expert/Creator (`crearCargo`, `crearPago`, `calcularSaldo` —
+  suma CARGO menos PAGO, nunca una columna cacheada). El CARGO lo crea
+  `VentasGestor.facturarFicha` (necesita ser atómico con la ficha, ver
+  arriba); todo lo demás vive en `CuentaCorrienteGestor`:
+  `POST /clientes/:id/pagos { monto, descripcion? }` (pago, imputación
+  GLOBAL — ver "Simplificación" más abajo), `GET /clientes/:id/cuenta`
+  (saldo + historial), `GET /clientes/con-saldo` (quién me debe — declarado
+  ANTES de `GET /clientes/:id` en el controller a propósito, mismo motivo que
+  `GET /ventas/abiertas` en Fase 1: si no, `:id` se come la ruta literal).
+- Probado de punta a punta contra ARCA homologación: cliente Consumidor
+  Final → ficha con 2 líneas → presupuesto (ficha sigue ABIERTA) → facturar
+  CONTADO → Factura B con CAE, ficha EMITIDA, sin cargo en cta cte. Cliente
+  Responsable Inscripto (con domicilio) → ficha → facturar CUENTA_CORRIENTE →
+  Factura A con CAE (neto/IVA discriminado, `razonSocialReceptor`/
+  `domicilioReceptor` en el PDF), CARGO por el total. Pago parcial →
+  `GET /clientes/:id/cuenta` muestra CARGO y PAGO con el saldo neto correcto;
+  `GET /clientes/con-saldo` lo lista. Agregar línea o volver a facturar una
+  ficha ya EMITIDA → 400; facturar una ficha ABIERTA sin líneas → 400.
 
 ### La "ficha" = una venta que vive en el tiempo
 - Se entra a **Ventas**, se elige el cliente y se abre su **ficha** (los datos del
@@ -206,7 +267,7 @@ la Fase 2 (emitir la ficha y enganchar cuentas corrientes) es lo que sigue.
   día; se le carga cada ítem a la misma ficha.
 - Es una `Venta` con `LineaVenta` y **estados** (abierta → emitida).
 
-### Fase 2 (pendiente): formas de emisión (se elige al final y se puede cambiar)
+### Formas de emisión (hecho — se elige al final y se puede cambiar)
 - **Presupuesto**: imprime una copia común, **NO fiscal, NO cierra la ficha, NO
   cambia ningún saldo.** Es solo un papel de lo que hay cargado hasta el momento.
 - **Factura**: va a ARCA (CAE), se imprime y queda registrada (usa el módulo de
@@ -222,22 +283,37 @@ la Fase 2 (emitir la ficha y enganchar cuentas corrientes) es lo que sigue.
   NO en el presupuesto. El presupuesto es solo una impresión.
 - Lo que **salda** es la factura: en CONTADO queda pagada; en CUENTA_CORRIENTE
   pasa al debe.
-- El `condicionVenta` que YA existe en el módulo de facturación es exactamente
-  esta bisagra. El `// TODO(ctacte)` en `FacturacionGestor.emitirFactura` es donde
-  la factura CUENTA_CORRIENTE debe sumar al saldo del cliente.
+- El `condicionVenta` que ya existía en el módulo de facturación era
+  exactamente esta bisagra; ahora `VentasGestor.facturarFicha` la consume:
+  CUENTA_CORRIENTE crea el `MovimientoCtaCte` CARGO (ver Fase 2 arriba).
 
-### Simplificación que permite el flujo del suegro
+### Simplificación que permite el flujo del suegro (aplicada)
 Como él salda todo al facturar en contado, el caso de **pagos parciales imputados
 contra facturas viejas** es SECUNDARIO (solo aplica a la factura en cuenta
-corriente, que dice no usar). Construir primero el flujo principal (ficha →
-presupuesto → factura contado). Para el saldo de cuenta corriente, empezar con un
-**saldo global simple** por cliente y afinar la imputación solo si empieza a usar
-la factura CC.
+corriente, que dice no usar). Por eso `CuentaCorrienteGestor.registrarPago` hace
+imputación **GLOBAL** (baja el saldo del cliente, no contra una factura
+puntual) — a propósito, no es un olvido. Si empieza a usar la factura CC en
+serio, ahí se afina la imputación puntual (ver "Pendiente de confirmar").
 
 ### Pendiente de confirmar (del lado de los pagos, menor)
 - Cuando cobra una factura en cuenta corriente y le pagan una parte: ¿imputa
   contra la factura puntual o baja el saldo global? (Baja prioridad: no lo usa hoy.)
 - ¿Da recibo al cobrar una CC? (Baja prioridad por lo mismo.)
+
+### Supuesto a confirmar con el titular: qué es `precioUnitario` en la ficha
+El precio que se carga en una línea de la ficha sigue la MISMA convención que
+`Comprobante.calcularImportesLinea` (ver sección Facturación), pero el tipo de
+factura ya no lo elige quien factura: lo **deriva el cliente**
+(`Cliente.tipoFacturaCorrespondiente()`). Concretamente: para un cliente
+Responsable Inscripto (Factura A) el precio cargado en la línea tiene que ser
+el **NETO** (sin IVA); para el resto (Factura B) va **con IVA incluido**. Hoy
+nada en la ficha avisa esto al cargar la línea — es la misma confusión ya
+documentada para el front de facturación directa, pero acá es más fácil
+pisarla: la cooperativa de agua (cliente real, RI) hay que cargarle precio
+neto, y si alguien la carga con IVA incluido por hábito, la Factura A sale mal
+sin que nada lo marque. **Pendiente:** confirmar con el suegro y, cuando se
+arme el front, mostrar explícitamente qué tipo de precio corresponde según el
+cliente elegido.
 
 ---
 
@@ -280,24 +356,33 @@ Hecho:
 - [x] **Ventas (Ficha) Fase 1**: clientes + ficha + líneas
       (`sistema-local/src/ventas/`), MMSC + GRASP, invariante de ficha única
       por cliente reforzada con índice único parcial (migración
-      `AddClientesYVentas`). Probada de punta a punta. Sin emisión todavía
-      (ver "Ventas (Ficha)" → Fase 2).
+      `AddClientesYVentas`). Probada de punta a punta.
+- [x] **Ventas (Ficha) Fase 2**: presupuesto no fiscal, facturar la ficha
+      (tipo de comprobante derivado del cliente, CONTADO/CUENTA_CORRIENTE,
+      transacción de DB después del CAE) y **cuenta corriente real**
+      (`MovimientoCtaCte`, `CuentaCorrienteGestor`: pagos, saldo derivado,
+      "quién me debe"). Migraciones `AddReceptorRazonSocialDomicilio` y
+      `AddCuentaCorriente`. Probada de punta a punta contra ARCA
+      homologación (Factura B contado sin cargo, Factura A cuenta corriente
+      con cargo, pago parcial, validaciones de estado). Detalle completo en
+      "Ventas (Ficha)" → Fase 2.
+- [x] Factura A: razón social y domicilio del receptor (`razonSocialReceptor`/
+      `domicilioReceptor` en `Comprobante`, opcionales en `ReceptorDto`,
+      completados siempre desde `Cliente` al facturar la ficha).
 
 Pendiente:
-- [ ] **Ventas (Ficha) Fase 2**: emitir la ficha como factura (reusando
-      `FacturacionGestor`, condición CONTADO/CUENTA_CORRIENTE) o imprimirla
-      como presupuesto no fiscal; consumir el `TODO(fase2-emision)` de
-      `VentasGestor` y el `TODO(ctacte)` de `FacturacionGestor` para que la
-      factura CC sume al saldo del cliente.
-- [ ] **Módulo de cuentas corrientes real** (saldo por cliente derivado de los
-      movimientos — ver "Ventas (Ficha)").
 - [ ] **Módulo de caja** (montos in/out + arqueo).
 - [ ] **Sistema del depósito** (ABM de productos).
-- [ ] Front en Angular (incluye el selector de IVA 21/10,5 y dejar explícito si el
-      precio va con o sin IVA según el tipo).
+- [ ] Front en Angular (incluye el selector de IVA 21/10,5 y dejar explícito
+      qué tipo de precio corresponde al cargar una línea, según el tipo de
+      factura del cliente — ver el supuesto a confirmar en "Ventas (Ficha)").
 - [ ] **Factura C**: sumar CbteTipo 11 (la lógica de IVA extraído ya existe en
-      `calcularImportesLinea`). Pendiente de confirmar con el titular si la necesita.
-- [ ] Factura A: capturar razón social y domicilio del receptor (obligatorios).
+      `calcularImportesLinea`). Pendiente de confirmar con el titular si la
+      necesita (hoy el emisor es RI, así que `Cliente.tipoFacturaCorrespondiente()`
+      nunca deriva C).
+- [ ] Confirmar con el suegro el supuesto de `precioUnitario` en la ficha
+      según tipo de cliente (neto para RI, con IVA incluido para el resto) —
+      ver "Ventas (Ficha)".
 - [ ] Datos legales del emisor en el `.env` (domicilio, IIBB, inicio de
       actividades) — los carga Mateo.
 - [ ] Antes de producción: `.gitignore` tapando `certs/` y `.env`, egress
@@ -307,6 +392,9 @@ Pendiente:
 - ¿Aclarar el tema Factura C? (aparecía en pantallas siendo él RI).
 - ¿Cómo imputa los pagos parciales del fiado: contra ventas o saldo global?
 - Datos legales reales (domicilio, IIBB, inicio de actividades).
+- Confirmar que al cargar una línea en la ficha para un cliente RI (Factura A,
+  ej. la cooperativa) el precio que se anota es el NETO, no el de venta con
+  IVA incluido — ver el supuesto documentado arriba.
 
 ---
 

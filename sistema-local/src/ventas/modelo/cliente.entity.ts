@@ -45,4 +45,16 @@ export class Cliente {
 
   @Column({ type: 'boolean', default: true })
   activo: boolean;
+
+  /**
+   * Information Expert: el emisor es Responsable Inscripto, así que el tipo
+   * de comprobante que le corresponde a este cliente depende únicamente de
+   * su propia condición de IVA (Factura C queda fuera: el emisor no es
+   * monotributista).
+   */
+  tipoFacturaCorrespondiente(): 'A' | 'B' {
+    return this.condicionIva === CondicionIvaCliente.RESPONSABLE_INSCRIPTO
+      ? 'A'
+      : 'B';
+  }
 }

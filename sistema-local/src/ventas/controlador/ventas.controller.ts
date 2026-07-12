@@ -6,10 +6,12 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  StreamableFile,
 } from '@nestjs/common';
 import { VentasGestor } from '../gestor/ventas.gestor';
 import { AbrirFichaDto } from '../dto/abrir-ficha.dto';
 import { AgregarLineaDto } from '../dto/agregar-linea.dto';
+import { FacturarFichaDto } from '../dto/facturar-ficha.dto';
 import { Venta } from '../modelo/venta.entity';
 
 @Controller('ventas')
@@ -52,6 +54,27 @@ export class VentasController {
   ) {
     const venta = await this.ventas.quitarLinea(id, lineaId);
     return this.conTotal(venta);
+  }
+
+  /** PDF de presupuesto (no fiscal, sin CAE/QR). No cambia el estado de la ficha. */
+  @Post(':id/presupuesto')
+  async presupuesto(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<StreamableFile> {
+    const { buffer, nombreArchivo } = await this.ventas.generarPresupuesto(id);
+    return new StreamableFile(buffer, {
+      type: 'application/pdf',
+      disposition: `inline; filename="${nombreArchivo}"`,
+    });
+  }
+
+  /** Emite la ficha como factura (CONTADO o CUENTA_CORRIENTE) y devuelve el comprobante */
+  @Post(':id/facturar')
+  facturar(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: FacturarFichaDto,
+  ) {
+    return this.ventas.facturarFicha(id, dto.condicionVenta);
   }
 
   private conTotal(venta: Venta) {

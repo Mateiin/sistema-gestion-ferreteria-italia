@@ -155,12 +155,18 @@ export class ComprobantePdfProvider {
         },
         { text: ' ', margin: [0, 5, 0, 0] as [number, number, number, number] },
         { text: 'Receptor', style: 'seccion' },
+        comprobante.razonSocialReceptor
+          ? { text: comprobante.razonSocialReceptor }
+          : null,
         {
           text: formatearReceptor(
             comprobante.docTipoReceptor,
             Number(comprobante.docNroReceptor),
           ),
         },
+        comprobante.domicilioReceptor
+          ? { text: `Domicilio: ${comprobante.domicilioReceptor}` }
+          : null,
         esA
           ? {
               text: `Condición frente al IVA: ${
