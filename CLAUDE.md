@@ -4,13 +4,10 @@ Este archivo le da contexto a Claude para trabajar en este proyecto. Leelo al
 inicio de cada sesión. Manténganlo actualizado: un CLAUDE.md viejo manda a
 construir sobre supuestos que ya no valen.
 
-> Última actualización: facturación electrónica con circuito completo probado
-> en homologación — emisión (A/B), Nota de Crédito, PDF con QR oficial (RG
-> 4892), cálculo de neto/IVA corregido según tipo de comprobante, y unidad de
-> medida por ítem + condición de venta del comprobante (preparado para que
-> cuentas corrientes enganche el cargo por venta fiada, sin implementar
-> todavía). Módulo reorganizado en MMSC + GRASP. Migraciones de TypeORM
-> versionadas activas.
+> Última actualización: Ventas (Ficha) Fase 1 implementada y probada de punta a
+> punta — clientes, ficha con líneas, invariante de una ficha abierta por
+> cliente reforzada con índice único parcial en la base. Facturación cerrada.
+> Próximo: Fase 2 (emitir la ficha + enganchar cuentas corrientes) y caja.
 
 ---
 
@@ -18,11 +15,9 @@ construir sobre supuestos que ya no valen.
 
 Sistema de gestión para la ferretería del suegro de Mateo (estudiante de Ing. en
 Sistemas). Doble propósito: **herramienta real** que el negocio va a usar, y
-**pieza de portfolio/CV**. Las decisiones se toman con las dos cosas en mente:
-que funcione en el mostrador de verdad, y que el código esté prolijo y defendible
-en una entrevista.
+**pieza de portfolio/CV**. Las decisiones se toman con las dos cosas en mente.
 
-El titular del negocio (la empresa, "Refrigeración Dimundo") es **Responsable
+El titular (la empresa, "Refrigeración Dimundo S.A.S.") es **Responsable
 Inscripto** y factura A y B.
 
 ---
@@ -32,468 +27,298 @@ Inscripto** y factura A y B.
 Corren en dos computadoras distintas y **por ahora no se comunican entre sí**.
 
 ### Sistema A — Depósito (en la casa)
-- ABM simple de productos. Campos: **nombre, código, cantidad, proveedor**.
-- Listado ordenado alfabéticamente + buscador por nombre.
-- Corre en la PC del depósito.
+- ABM simple de productos: **nombre, código, cantidad, proveedor**.
+- Listado alfabético + buscador. Todavía no arrancado.
 
-### Sistema B — Local
-1. **Caja**: registra los montos que entran y salen. Solo importes, sin detalle.
-2. **Cuentas corrientes (fiado)**: clientes, cargos y pagos, saldo. Lo más
-   importante para el suegro.
-3. **Facturación electrónica (ARCA)**: emisión de facturas A y B. **YA
-   FUNCIONA en homologación** (ver sección de facturación).
-- Corre en la PC del local (`sistema-local/`).
+### Sistema B — Local (`sistema-local/`)
+1. **Caja**: montos que entran y salen, solo importes. Todavía no arrancado.
+2. **Ventas / Ficha + Cuentas corrientes (fiado)**: Fase 1 (clientes + ficha +
+   líneas) **implementada**. Emisión y cuentas corrientes reales (Fase 2)
+   **pendientes** — ver sección "Ventas (Ficha)".
+3. **Facturación electrónica (ARCA)**: **COMPLETA y probada en homologación.**
 
-> **Regla de consistencia entre sistemas:** aunque hoy no se hablan, el **código
-> de producto** debe ser consistente entre ambos desde el arranque, para el día
-> que haya que cruzar stock del depósito con el local.
+> **Regla de consistencia:** el **código de producto** debe ser consistente entre
+> ambos sistemas desde el arranque, para el día que haya que cruzar stock.
 
 ---
 
 ## Stack técnico
 
-- **Backend:** NestJS + TypeORM
-- **Base de datos:** PostgreSQL
-- **Frontend:** Angular (standalone components) — todavía no arrancado
-- **Infra:** Docker + Docker Compose (todo local en cada PC, funciona offline)
-- **Lenguaje:** TypeScript · Node.js >= 18 (requisito del SDK de ARCA)
+- **Backend:** NestJS + TypeORM · **DB:** PostgreSQL · **Frontend:** Angular
+  (standalone) — no arrancado · **Infra:** Docker Compose (local/offline).
+- **Lenguaje:** TypeScript · Node.js >= 18. El proyecto usa `tsx` para scripts.
 
 ---
 
 ## Decisiones ya tomadas
 
-- **Sin catálogo online / e-commerce.** Búsqueda por nombre.
-- **Facturación electrónica ARCA SÍ está en alcance** (RI → Factura A y B).
+- Sin catálogo online. Búsqueda por nombre.
 - **SDK de ARCA: `@arcasdk/core` (ex `afip.ts`), pinneado exacto a `2.0.0`**
-  (sin `^`). Es self-contained: habla directo con ARCA, sin intermediarios ni
-  token de terceros ni límite de facturas.
-  - **Por qué ese y no otro (decisión de seguridad, no reabrir sin motivo):** se
-    descartó `@ramiidv/arca-sdk` por señales de riesgo de cadena de suministro
-    (paquete de semanas, mantenedor único, renames y parches el mismo día). Se
-    descartó `@afipsdk/afip.js` porque enruta por servidores de terceros. De
-    `@arcasdk/core` se auditó el tarball (sin scripts de instalación, sin
-    `eval`/`child_process`, URLs solo a hosts oficiales de ARCA) antes de
-    instalarlo, y se pinneó la versión exacta.
-- **Patrón puertos y adaptadores** para ARCA: el sistema depende de la interfaz
-  `ArcaProvider`, no del SDK. Cambiar de librería = reescribir SOLO el adapter.
-- **Multi-tenant desde el diseño** (concepto de `Emisor` configurable) por si el
-  sistema se vende a otros comercios.
-- **Siempre empezar en homologación**, nunca desarrollar contra producción.
-- **Arquitectura de aplicación: MMSC + GRASP** (ver sección aparte más abajo).
-- **Backups no negociables** (ver sección aparte).
-- El "en negro" es decisión y responsabilidad del titular. El sistema es un
-  **registro fiel**: registra movimientos, y emitir factura es una acción
-  separada y opcional. **No** se programan trucos para ocultar ni doble
-  contabilidad.
+  (sin `^`). Self-contained: habla directo con ARCA, sin intermediarios ni token.
+  - **Decisión de seguridad (no reabrir sin motivo):** se descartó
+    `@ramiidv/arca-sdk` por riesgo de cadena de suministro y `@afipsdk/afip.js`
+    por enrutar a terceros. De `@arcasdk/core` se auditó el tarball antes de
+    instalar y se pinneó la versión.
+- **Puertos y adaptadores** para ARCA: el sistema depende de `ArcaProvider`, no
+  del SDK. Cambiar de librería = reescribir solo el adapter.
+- **Multi-tenant desde el diseño** (concepto de `Emisor` configurable).
+- **Siempre empezar en homologación.**
+- Backups no negociables (sección aparte).
+- El "en negro" es responsabilidad del titular. El sistema es registro fiel; NO
+  se programan trucos para ocultar ni doble contabilidad.
 
 ---
 
-## Modelo de datos
+## Facturación (ARCA) — `sistema-local/src/facturacion/` — COMPLETA
 
-### Sistema A — Depósito
-- **Producto**: id, nombre, codigo, cantidad, proveedor.
-  - `cantidad` en **decimal** por si aparece fraccionado (metro/kilo).
+**Estado: emite A y B, anula con NC y genera PDF con QR. Todo probado de punta a
+punta en homologación.**
 
-### Sistema B — Local
-- **Cliente**: id, nombre, telefono, saldo (saldo derivado de los movimientos).
-- **CtaCteMov**: id, cliente_id, tipo (cargo/pago), monto, fecha, descripcion,
-  comprobante_id (opcional, si el cargo se facturó).
-- **Comprobante** (factura emitida con CAE): ver módulo de facturación.
-- **SesionCaja**: id, apertura, cierre, monto_inicial, monto_final.
-- **MovCaja**: id, sesion_id, tipo (ingreso/egreso), monto, fecha. Solo montos.
+### Arquitectura
+- `interfaces/arca-provider.interface.ts` — PORT (intención de dominio).
+- `providers/arca-sdk.provider.ts` — ADAPTER con `@arcasdk/core`
+  (`electronicBillingService`: getLastVoucher / createNextVoucher).
+- `gestor/facturacion.gestor.ts` / `FacturacionGestor` — orquesta emisión y anulación.
+- `dto/crear-factura.dto.ts` — ítems con alícuota propia + unidad de medida;
+  receptor; condición de venta.
+- `modelo/comprobante.entity.ts` — persiste comprobante + CAE + detalle.
+- `config/emisor.ts` — datos del emisor desde `.env` (cert/key por PATH).
+- `pdf/comprobante-pdf.provider.ts` — PDF con `pdfmake` + QR con `qrcode`.
 
-> **PENDIENTE DE CONFIRMAR:** el modelo rico inicial (Producto con `Presentacion`
-> y `unidad_base` decimal, `Venta`, `LineaVenta`, `Rubro`, `MovimientoStock`) fue
-> diseñado para un punto de venta completo. El suegro pidió algo más chico. **No
-> implementar ese modelo rico hasta confirmar** que el local necesita registrar
-> ventas a nivel producto y descontar stock.
+### Cómo se emite
+WSAA (autenticación con certificado) → Ticket de Acceso → WSFEv1 → CAE. El SDK
+maneja el WSAA y el cacheo del ticket.
 
-**Convenciones del modelo:**
-- Plata: `numeric`/`decimal`, **nunca float**.
-- El `saldo` del cliente se recalcula desde `CtaCteMov`, no es fuente de verdad.
+### IVA: el cálculo DEPENDE del tipo de comprobante (crítico)
+`Comprobante.calcularImportesLinea(tipoFactura, cantidad, precioUnitario, ivaPorcentaje)`:
+- **Factura A**: `precioUnitario` es NETO. Se SUMA el IVA. El IVA se discrimina.
+- **Factura B (y C)**: `precioUnitario` viene CON IVA INCLUIDO. El neto se
+  EXTRAE: `neto = precio / (1 + iva/100)`. El IVA va contenido.
+- **Redondeo**: se acumula sin redondear y se redondea UNA vez por alícuota
+  agrupada (no por línea). Redondear por línea da diferencias de centavos que
+  ARCA rechaza. Verificado: 3 ítems misma alícuota → 10165.29 agrupando vs
+  10165.28 por línea.
+- Front (pendiente): la pantalla de carga debe dejar EXPLÍCITO si el precio va con
+  o sin IVA según el tipo, o el operador se equivoca (nos pasó a nosotros).
 
----
+### Qué se envía a ARCA y qué no
+WSFEv1 **no recibe líneas de detalle**: solo totales por alícuota. Por lo tanto,
+`descripcion`, `cantidad`, `unidadMedida` y `condicionVenta` son **registro local
++ PDF**, NO viajan a ARCA. Viven en el jsonb `detalle` del Comprobante. La factura
+que ARCA autoriza y el PDF comercial no son idénticos: ARCA valida totales + CAE,
+el detalle lo agregamos nosotros.
 
-## Arquitectura de aplicación: MMSC + GRASP
+### Nota de crédito
+Anula (una factura con CAE no se borra). CbteTipo 3 (NC-A) / 8 (NC-B), con
+`CbtesAsoc` al original. `anularFactura(id)` reconstruye la NC desde lo
+persistido, marca el original como anulado y hereda `detalle` y `condicionVenta`.
+Requiere `ivaDesglose` y `condicionIvaReceptor` guardados (los comprobantes
+previos a esos campos se detectan y avisan, no rompen).
 
-Todo módulo nuevo (depósito, caja, cuentas corrientes, facturación) sigue esta
-misma forma de organizar las carpetas y de repartir responsabilidades. Son
-**carpetas físicas** dentro de cada módulo, no solo un criterio de nombres:
+### Condición de venta — gancho con el fiado
+Enum `CondicionVenta` (mismos 7 valores que ARCA: CONTADO, TARJETA_DEBITO,
+TARJETA_CREDITO, CUENTA_CORRIENTE, CHEQUE, TRANSFERENCIA_BANCARIA, OTRA). Cuando es
+`CUENTA_CORRIENTE`, la factura es fiada. Hay un `// TODO(ctacte)` en
+`FacturacionGestor.emitirFactura` donde el futuro módulo de cuentas corrientes
+debe disparar el cargo al cliente. **No implementado aún, a propósito.**
 
-```
-<modulo>/
-├── modelo/<algo>.entity.ts        MODELO
-├── modulo/<modulo>.module.ts      MÓDULO
-├── gestor/<modulo>.gestor.ts      SERVICIO / GESTOR
-├── controlador/<modulo>.controller.ts   CONTROLADOR
-├── dto/                           entrada de la API (no es parte de MMSC)
-├── interfaces/ + providers/       puertos y adaptadores (no es parte de MMSC)
-├── pdf/ (u otra carpeta de infra)  otro adapter más, mismo eje que providers/
-└── config/                        configuración (no es parte de MMSC)
-```
+### Homologación vs. Producción — ¡OJO, confunde!
+Ambientes separados, certificados distintos y **CUITs distintos** en esta etapa:
 
-- **Modelo** (`modelo/*.entity.ts`): la entidad de TypeORM, pero **no es una
-  bolsa de columnas**. Ahí vive la lógica de negocio: cálculos, invariantes,
-  "¿se puede hacer esto?", y los *factories* que saben construirse a sí mismos
-  (`Comprobante.crearAutorizado(...)`, `Comprobante.calcularDesglose(...)`).
-  GRASP: **Information Expert** (quien tiene los datos hace la cuenta) y
-  **Creator**.
-- **Módulo** (`modulo/*.module.ts`): cablea Controlador + Gestor + Modelo +
-  adapters externos (providers de NestJS). No tiene lógica.
-- **Servicio / Gestor** (`gestor/*.gestor.ts`): es el **GRASP Controller** — el
-  punto de entrada de un caso de uso. **Solo instancia/obtiene el Modelo y le
-  delega**: no calcula IVA, no valida reglas de negocio, no arma DTOs de
-  infraestructura a mano. Su trabajo es coordinar la secuencia: pedirle al
-  Modelo que calcule o valide, llamar al puerto externo si hace falta (I/O),
-  pedirle al Modelo que registre el resultado, y persistir. Si un Gestor tiene
-  un `if` de regla de negocio o hace una cuenta con `+`/`*`/`%`, esa lógica se
-  fue al lugar equivocado.
-- **Controlador** (`controlador/*.controller.ts`): HTTP puro (NestJS). Valida
-  el DTO de entrada (`class-validator`) y llama al Gestor. Sin lógica.
-
-**Cómo convive con puertos y adaptadores:** el patrón de puertos y adaptadores
-(`interfaces/*.interface.ts` + `providers/*.provider.ts`) sigue existiendo para
-servicios **externos** (ARCA, y a futuro cualquier integración de terceros), y
-vive en carpetas propias al mismo nivel que las 4 de MMSC (junto con `dto/` y
-`config/`). Es un eje distinto de MMSC: MMSC organiza la aplicación hacia
-adentro; puertos y adaptadores aíslan lo que habla con el mundo exterior. El
-adapter es infraestructura pura — **traduce, no calcula**: los montos y las
-validaciones de negocio los produce el Modelo antes de llamarlo.
-
-Ejemplo ya aplicado en `facturacion/` (ver sección siguiente): `Comprobante`
-(Modelo) calcula el desglose de IVA y decide si se puede anular;
-`FacturacionGestor` (Gestor) solo llama a esos métodos, después al
-`ArcaProvider` (puerto/adapter), y guarda; `arca-sdk.provider.ts` (adapter) no
-hace ninguna cuenta, solo arma el payload que espera el SDK con los números que
-ya le pasaron.
-
----
-
-## Módulo de facturación (ARCA) — `sistema-local/src/facturacion/`
-
-**Estado: circuito completo probado de punta a punta en homologación (WSAA →
-WSFEv1 → CAE), con Factura A y B, Nota de Crédito y PDF con QR oficial. El
-cálculo de neto/IVA ya distingue correctamente entre A (precio neto) y B
-(precio con IVA incluido) — ver "Estado actual y pendientes" para el detalle
-y los CAE de prueba.**
-
-### Arquitectura (MMSC + GRASP — ver sección general más arriba)
-- `interfaces/arca-provider.interface.ts` — **PORT**. Expresa intención de
-  dominio: emitir un comprobante **ya calculado** (montos y desglose por
-  alícuota resueltos por el Modelo) para este receptor. De esto depende el
-  Gestor; no conoce el SDK.
-- `modelo/comprobante.entity.ts` — **MODELO**. Persiste el comprobante + CAE
-  + el desglose de IVA por alícuota (`ivaDesglose`, necesario para poder
-  anularlo después con una NC) + `condicionIvaReceptor` (solo Factura A) +
-  `detalle` (snapshot de ítems para el PDF, cada uno con su `unidadMedida`) +
-  `fecha` (CbteFch, para el PDF y el QR) + `condicionVenta` (cómo se cobró).
-  Ni `detalle`/`unidadMedida` ni `condicionVenta` se mandan a ARCA: WSFEv1 no
-  recibe líneas de detalle ni condición de venta, son solo para nuestro
-  registro y el PDF. Ahí vive la lógica: `calcularImportesLinea` (neto/IVA de
-  una línea
-  según si el tipo trae el precio neto —A— o con IVA incluido —B/C—),
-  `calcularDesglose`/`totalizar` (agrupan ítems por alícuota, redondeando una
-  sola vez por grupo), `armarDetalle` (snapshot por ítem, sin agrupar),
-  `condicionIvaRequerida`, `crearAutorizado` (Creator), y
-  `prepararNotaCredito`/`registrarNotaCredito` (validan si se puede anular y
-  arman/registran la NC, incluido el `detalle` que se hereda a la NC). Tira
-  `ComprobanteYaAnuladoError` / `SinDesgloseIvaError` si no se puede anular; el
-  Gestor traduce esos errores a HTTP. También tiene `construirUrlQr` (arma la
-  URL del QR oficial RG 4892, pura, sin I/O), `letra()`, `tipoDocumentoTexto()`
-  y `nombreArchivoPdf()`.
-- `providers/arca-sdk.provider.ts` — **ADAPTER** con `@arcasdk/core`. Traductor
-  puro: no calcula montos ni IVA, solo arma el payload de
-  `Arca.electronicBillingService.createNextVoucher` con los números que ya le
-  pasó el Modelo, y detecta rechazo de ARCA (`cae` vacío) levantando error con
-  las observaciones. `solicitarNotaCredito` reusa el mismo armado (método
-  privado `emitirComprobante`) pasando el `CbteTipo` de NC (3=NC-A, 8=NC-B) y
-  `CbtesAsoc` con la referencia al comprobante original. También devuelve la
-  `fecha` (CbteFch) que efectivamente se envió a ARCA, para que el Modelo la
-  persista tal cual.
-- `pdf/comprobante-pdf.provider.ts` — **ADAPTER** con `pdfmake` + `qrcode`.
-  Igual que el de ARCA: traductor puro, no calcula nada de negocio (recibe el
-  `Comprobante` y el `Emisor` ya resueltos). Arma el QR con
-  `Comprobante.construirUrlQr`, lo embebe como imagen (dataURL PNG vía
-  `qrcode`), y arma la tabla de ítems desde `detalle` — si un comprobante viejo
-  no tiene `detalle` (emitido antes de esa columna), cae a mostrar el desglose
-  por alícuota disponible con una nota, en vez de romper. Usa las fuentes
-  estándar de pdfmake (Helvetica, sin TTF embebidos). `pdf/pdfmake.d.ts` es un
-  shim de tipos mínimo (pdfmake no publica tipos para la API de servidor).
-- `gestor/facturacion.gestor.ts` — **GESTOR** (GRASP Controller). Solo instancia y
-  delega: le pide al Modelo que calcule/valide, llama al `ArcaProvider` o al
-  `ComprobantePdfProvider`, le pasa el resultado al Modelo para que registre su
-  propio estado, y persiste. No calcula IVA ni arma el PDF él mismo. Tiene un
-  `// TODO(ctacte)` en `emitirFactura`: cuando `condicionVenta ===
-  CUENTA_CORRIENTE`, ahí es donde el módulo de cuentas corrientes (todavía no
-  existe) va a disparar el cargo en la cuenta del cliente.
-- `dto/crear-factura.dto.ts` — cada ítem lleva su **propia alícuota**
-  (`ivaPorcentaje`, default 21) y su **unidad de medida** (`unidadMedida`,
-  código ARCA, default 7 = "unidades"). Valores de alícuota permitidos: **21 y
-  10,5** (el suegro pidió poder elegir entre esos dos; en el front va como
-  selector por línea). `condicionVenta` (enum `CondicionVenta`, obligatorio)
-  es cómo se cobró el comprobante.
-- `config/emisor.ts` — datos del emisor desde `.env`. Lee cert/key de archivo
-  (`ARCA_CERT_PATH` / `ARCA_KEY_PATH`), no del contenido inline. También lee
-  `EMISOR_DOMICILIO_COMERCIAL` / `EMISOR_INGRESOS_BRUTOS` /
-  `EMISOR_INICIO_ACTIVIDADES` (opcionales para no romper el arranque si faltan,
-  pero **obligatorios en el PDF impreso** — ver pendientes).
-- `modulo/facturacion.module.ts` — **MÓDULO**. Cablea `crearArcaSdkProvider` y
-  `ComprobantePdfProvider`.
-- `controlador/facturacion.controller.ts` — **CONTROLADOR**. Endpoints HTTP,
-  incluido `GET facturas/:id/pdf` (devuelve el PDF con `StreamableFile`).
-
-### Cómo funciona ARCA (resumen)
-El sistema se autentica en el **WSAA** con un certificado digital → obtiene un
-Ticket de Acceso → llama al **WSFEv1** para pedir el **CAE**. Sin CAE, la factura
-no tiene validez fiscal. El SDK maneja el WSAA y el cacheo del ticket.
-
-### Homologación vs. Producción — ¡OJO, esto confunde!
-Son ambientes separados, con certificados **distintos** y, clave, con **CUITs
-distintos** en esta etapa:
-
-| | Certificado | CUIT (cert = "representado" en WSASS = `EMISOR_CUIT`) | Punto de venta |
+| | Certificado | CUIT (cert = "representado" = `EMISOR_CUIT`) | Pto. venta |
 |---|---|---|---|
-| **Homologación** (testing actual) | generado en WSASS con el **CUIT personal de Mateo** | el **CUIT personal de Mateo** | 1 |
-| **Producción** (a futuro) | el `.crt` traído de ARCA | el **CUIT de la empresa** | el punto de venta "RECE para web services" creado en ARCA |
+| **Homologación** (hoy) | generado en WSASS con el **CUIT personal de Mateo** | **CUIT personal de Mateo** | 1 |
+| **Producción** (futuro) | el `.crt` de ARCA | **CUIT de la empresa** | el "RECE web services" creado en ARCA |
 
-**Los tres valores (cert, representado, `EMISOR_CUIT`) tienen que ser el mismo
-CUIT.** Un error 600 "No apareció CUIT en lista de relaciones" = ese CUIT no está
-autorizado para el certificado que estás usando (típicamente: quedó el CUIT de la
-empresa en el `.env` mientras se prueba con el cert personal de homologación).
-**En homologación NO se asocia el CUIT de la empresa en el portal de ARCA.**
+Los tres valores (cert, representado, `EMISOR_CUIT`) deben ser el MISMO CUIT. Error
+600 "No apareció CUIT en lista de relaciones" = quedó el CUIT de la empresa en el
+`.env` mientras se prueba con el cert personal. **En homologación NO se asocia el
+CUIT de la empresa en el portal.** Cert de homologación solo sirve en
+homologación (mezclar da "computador no autorizado").
 
-Un cert de homologación solo sirve en homologación (y viceversa): mezclarlos da
-"computador no autorizado".
-
-### Códigos ARCA de referencia
-- Comprobante: 1=Factura A, 6=Factura B, 11=Factura C, 3=NC A, 8=NC B.
-- DocTipo receptor: 80=CUIT, 96=DNI, 99=Consumidor Final (DocNro 0).
+### Códigos ARCA
+- Comprobante: 1=Fact A, 6=Fact B, 11=Fact C, 3=NC A, 8=NC B.
+- DocTipo: 80=CUIT, 96=DNI, 99=Consumidor Final (DocNro 0).
 - IVA (Id): 5=21%, 4=10.5%, 6=27%, 3=0%.
 
-### Reglas de seguridad del certificado
-- La `.key` (privada) **nunca** se versiona. `certs/` y `.env` van en `.gitignore`.
-- Los CUIT reales **no** se hardcodean en este doc ni en el repo: los valores van
-  en `.env` (ignorado). Acá se referencian por rol ("CUIT personal" / "de la
-  empresa").
-- El punto de venta del sistema (producción) es **distinto** del que usa para
-  facturar a mano.
-- Una factura con CAE no se borra: se anula con Nota de Crédito.
-- Egress del contenedor de facturación restringida a los dominios de ARCA.
+### Seguridad del certificado
+- La `.key` nunca se versiona. `certs/` y `.env` en `.gitignore`.
+- CUIT reales NO se hardcodean en el repo ni en este doc (van en `.env`).
+- Pto. de venta del sistema (producción) distinto del de facturación manual.
+- Egress del contenedor de facturación restringida a dominios de ARCA.
+
+---
+
+## Base de datos — migraciones
+
+- Migraciones de TypeORM **activas** (`data-source.ts`, scripts
+  `migration:generate/run/revert/create` con `tsx`). `synchronize: false`.
+  `migrationsRun: true` al arrancar.
+- Todo cambio de esquema: `migration:generate` → revisar → commit →
+  `migration:run` en cada base. **Prohibido `synchronize` y ALTER manual.**
+- Nota: los cambios dentro del jsonb `detalle` NO requieren migración (no tiene
+  esquema fijo en Postgres).
+- El sistema del depósito, cuando arranque, necesitará su propia infra de
+  migraciones (es otra base en otra PC).
+
+---
+
+## Ventas (Ficha) — `sistema-local/src/ventas/` — Fase 1 implementada
+
+Este es el flujo real de trabajo del negocio, confirmado con el suegro. Es el
+"modelo rico" que se había puesto en pausa: **vuelve y es el corazón del local.**
+La Fase 1 (clientes + ficha + líneas, sin emisión) ya está construida y probada;
+la Fase 2 (emitir la ficha y enganchar cuentas corrientes) es lo que sigue.
+
+### Fase 1 (hecho): clientes + ficha + líneas
+- MMSC + GRASP, misma forma que `facturacion/`: `modelo/` (`Cliente`, `Venta`,
+  `LineaVenta`), `gestor/` (`ClientesGestor`, `VentasGestor`), `controlador/`
+  (`ClientesController`, `VentasController`), `dto/`, `modulo/ventas.module.ts`.
+- `Venta.total()` es el Information Expert: suma los subtotales
+  (`cantidad * precioUnitario`) de sus líneas. El Gestor no calcula nada, solo
+  valida que la ficha esté ABIERTA antes de tocar sus líneas.
+- Endpoints: `POST /clientes`, `GET /clientes` (`?nombre=` para buscar),
+  `GET /clientes/:id`, `PUT /clientes/:id`; `POST /ventas/abrir` (abre o
+  devuelve la ficha ABIERTA del cliente), `GET /ventas/abiertas`,
+  `GET /ventas/:id`, `POST /ventas/:id/lineas`,
+  `DELETE /ventas/:id/lineas/:lineaId`. Agregar/quitar líneas solo si la ficha
+  está ABIERTA (400 si no).
+- **Invariante "una ficha abierta por cliente"** reforzada en dos capas:
+  `VentasGestor.abrirFicha` busca antes de crear, y además hay un índice único
+  parcial en la base (`UNIQUE (clienteId) WHERE estado = 'ABIERTA'`, migración
+  `AddClientesYVentas`) que la garantiza aunque la capa de aplicación falle.
+  Verificado insertando directo por SQL: la base rechaza el duplicado.
+- `Venta.comprobanteId` y el estado `EMITIDA` quedan preparados pero sin usar
+  todavía: `// TODO(fase2-emision)` en `VentasGestor` marca dónde va a ir
+  emitir la ficha como factura (reusando `FacturacionGestor`) o imprimirla
+  como presupuesto.
+- Probado de punta a punta: cliente → abrir ficha → 2 líneas → total correcto;
+  reabrir la misma ficha no crea otra; `GET /ventas/abiertas` lista las
+  fichas abiertas con cliente y total (la futura "pestaña de cuentas
+  corrientes").
+
+### La "ficha" = una venta que vive en el tiempo
+- Se entra a **Ventas**, se elige el cliente y se abre su **ficha** (los datos del
+  cliente se autocompletan desde su registro).
+- **Una ficha por cliente, abierta durante el mes.** Se le van agregando líneas de
+  mercadería (producto + precio) cada vez que el cliente se lleva algo. No se
+  cierra hasta que se emite. Ej. real: la cooperativa de agua pasa 2-3 veces por
+  día; se le carga cada ítem a la misma ficha.
+- Es una `Venta` con `LineaVenta` y **estados** (abierta → emitida).
+
+### Fase 2 (pendiente): formas de emisión (se elige al final y se puede cambiar)
+- **Presupuesto**: imprime una copia común, **NO fiscal, NO cierra la ficha, NO
+  cambia ningún saldo.** Es solo un papel de lo que hay cargado hasta el momento.
+- **Factura**: va a ARCA (CAE), se imprime y queda registrada (usa el módulo de
+  facturación ya hecho). Al emitirla se elige la **condición de venta**:
+  - **CONTADO**: la factura queda **pagada** al instante. Es como trabaja el
+    suegro casi siempre.
+  - **CUENTA_CORRIENTE**: el importe va al **debe** del cliente, se cobra después.
+- **Remito**: mencionado antes, no fiscal; tratarlo como una forma de impresión
+  más si hace falta.
+
+### Dónde vive la deuda (importante, no confundir)
+- La deuda vive en la **ficha abierta** (lo que el cliente se llevó y no saldó),
+  NO en el presupuesto. El presupuesto es solo una impresión.
+- Lo que **salda** es la factura: en CONTADO queda pagada; en CUENTA_CORRIENTE
+  pasa al debe.
+- El `condicionVenta` que YA existe en el módulo de facturación es exactamente
+  esta bisagra. El `// TODO(ctacte)` en `FacturacionGestor.emitirFactura` es donde
+  la factura CUENTA_CORRIENTE debe sumar al saldo del cliente.
+
+### Simplificación que permite el flujo del suegro
+Como él salda todo al facturar en contado, el caso de **pagos parciales imputados
+contra facturas viejas** es SECUNDARIO (solo aplica a la factura en cuenta
+corriente, que dice no usar). Construir primero el flujo principal (ficha →
+presupuesto → factura contado). Para el saldo de cuenta corriente, empezar con un
+**saldo global simple** por cliente y afinar la imputación solo si empieza a usar
+la factura CC.
+
+### Pendiente de confirmar (del lado de los pagos, menor)
+- Cuando cobra una factura en cuenta corriente y le pagan una parte: ¿imputa
+  contra la factura puntual o baja el saldo global? (Baja prioridad: no lo usa hoy.)
+- ¿Da recibo al cobrar una CC? (Baja prioridad por lo mismo.)
 
 ---
 
 ## Estrategia de backup (CRÍTICO)
 
-El dato irremplazable son los **saldos de cuentas corrientes (fiado)**. El stock y
-los precios el suegro los tiene de memoria.
+Dato irremplazable: **saldos de cuentas corrientes (fiado)**. Stock y precios el
+suegro los tiene de memoria.
 
-Cada noche, a **dos destinos** (pendrive + Google Drive cuando haya internet) y
-**dos archivos** con **fecha en el nombre** (nunca sobrescribir; retener ~30 días):
-- `dump_AAAA-MM-DD.sql` — `pg_dump` completo para restaurar todo.
+Cada noche, a **pendrive + Google Drive**, con **fecha en el nombre** (nunca
+sobrescribir; retener ~30 días):
+- `dump_AAAA-MM-DD.sql` — `pg_dump` completo.
 - `saldos_AAAA-MM-DD.csv` — nombre, teléfono y saldo de cada deudor, **legible sin
   el sistema**.
 
-Se ejecuta como contenedor/cron en el Compose.
-
----
-
-## Migraciones de base de datos (`sistema-local/`)
-
-**Estado: migraciones versionadas activas.** `synchronize` está en `false` y
-**prohibido** ponerlo en `true` fuera de un experimento local descartable.
-**Prohibido también el `ALTER TABLE` manual**: todo cambio de esquema se hace
-con `migration:generate`, se commitea el archivo generado, y se aplica con
-`migration:run` en cada base (dev, y a futuro producción).
-
-- `src/data-source.ts` — `DataSource` de TypeORM para la CLI. Lee las MISMAS
-  variables de entorno que usa la app (`DB_HOST`/`DB_PORT`/`DB_USER`/
-  `DB_PASSWORD`/`DB_NAME`). Único export de `DataSource` en el archivo (la CLI
-  de TypeORM exige exactamente uno).
-- `src/migrations/*.ts` — una migración por cambio de esquema. La primera,
-  `InitialSchema`, representa el esquema completo tal como estaba al momento
-  de activar migraciones (incluye `ivaDesglose`, `condicionIvaReceptor` y
-  `comprobanteOriginalId` de `comprobantes`, que antes se habían agregado a
-  mano con `ALTER TABLE`).
-- `AppModule` (`src/app.module.ts`) tiene `migrationsRun: true`: la app corre
-  las migraciones pendientes sola al arrancar (además de que se pueden correr
-  a mano). Verificado: arrancar la app contra una base vacía crea el esquema
-  solo con las migraciones, sin `synchronize`.
-
-**Scripts** (`sistema-local/package.json`):
-```bash
-npm run migration:generate -- src/migrations/NombreDelCambio   # diff entidades vs. base real
-npm run migration:create -- src/migrations/NombreDelCambio     # migración vacía, para SQL a mano
-npm run migration:run       # aplica las migraciones pendientes
-npm run migration:revert    # revierte la última migración aplicada
-```
-
-**Flujo para cualquier cambio de esquema:**
-1. Cambiar la entidad (columna, índice, tabla nueva).
-2. `npm run migration:generate -- src/migrations/DescripcionDelCambio` (necesita
-   Postgres corriendo y accesible con las credenciales del `.env`).
-3. Revisar el SQL generado (el `up`/`down`) antes de commitear.
-4. `npm run migration:run` para aplicarla en la base local.
-5. Commitear el archivo de migración junto con el cambio de entidad.
+Como contenedor/cron en el Compose.
 
 ---
 
 ## Convenciones de código
 
-- **Español** para nombres de dominio y comentarios.
-- **MMSC + GRASP** (ver sección de arquitectura): 4 carpetas por módulo —
-  `modelo/`, `modulo/`, `gestor/`, `controlador/` — más `dto/`, `interfaces/`,
-  `providers/` y `config/` aparte. Archivo `gestor/*.gestor.ts` (no
-  `*.service.ts`), lógica de negocio en `modelo/*.entity.ts`, Gestor solo
-  orquesta.
-- Separar **dominio** de **infraestructura**. Servicios externos detrás de un puerto.
-- Plata en `decimal`/`numeric`. Cantidades fraccionables, en `decimal`.
-- Validación con `class-validator` en los DTOs.
-- Migraciones de TypeORM **versionadas** (ver sección "Migraciones de base de
-  datos"). Nada de `synchronize: true` ni `ALTER TABLE` manual.
-- Dependencias sensibles (las que tocan el cert/key): versión pinneada exacta y
-  auditada antes de instalar.
-- Tests: como mínimo el e2e del flujo de facturación en homologación.
+- **Español** para dominio y comentarios.
+- Dominio separado de infraestructura; servicios externos detrás de un puerto.
+- Plata en `decimal`/`numeric`, **nunca float**. Cantidades fraccionables en decimal.
+- `class-validator` en DTOs.
+- Dependencias que tocan cert/key: versión pinneada exacta y auditada.
+- Aplicar patrones GRASP donde corresponda (ej. Information Expert:
+  `calcularImportesLinea` vive en la entidad que tiene los datos).
+- Tests: mínimo el e2e de facturación en homologación.
 
 ---
 
 ## Estado actual y pendientes
 
 Hecho:
-- [x] Trámite ARCA de producción: certificado `.crt` + punto de venta creados.
-- [x] Certificado de homologación generado en WSASS y autorizado a `wsfe`.
-- [x] Facturación probada de punta a punta en homologación (primer CAE OK).
-- [x] **Nota de crédito** (anulación): `Comprobante.prepararNotaCredito` /
-      `registrarNotaCredito` (Modelo) + `solicitarNotaCredito` en el
-      port/adapter (NC-A=3, NC-B=8, misma llamada que una factura con
-      `CbtesAsoc` apuntando al comprobante original) + `FacturacionGestor.
-      anularFactura` (solo orquesta). Probado de punta a punta en
-      homologación (factura CAE 86280549392676 → NC CAE 86280549392689, y de
-      nuevo tras el refactor MMSC: CAE 86280550249473 → NC CAE 86280550249486).
-      Para poder reconstruir la NC de un comprobante existente, `Comprobante`
-      ahora también guarda `ivaDesglose` (importes por alícuota) y
-      `condicionIvaReceptor`; comprobantes emitidos ANTES de este cambio no
-      tienen esas columnas pobladas y no se pueden anular automáticamente
-      (tira `SinDesgloseIvaError`, el Gestor lo traduce a 400).
-      Las 3 columnas ya quedaron capturadas en la migración inicial (ver
-      sección "Migraciones de base de datos"): **migraciones versionadas
-      activas, el `ALTER TABLE` manual queda obsoleto.**
-- [x] **Refactor MMSC + GRASP** de `facturacion/`: `facturacion.service.ts` →
-      `facturacion.gestor.ts` (`FacturacionGestor`, sin lógica propia); toda la
-      cuenta de IVA/totales y las validaciones de anulación se movieron a
-      `Comprobante` (Modelo); `arca-sdk.provider.ts` (adapter) quedó como
-      traductor puro, sin matemática de negocio. Aplicar esta misma forma a
-      los módulos que se agreguen (depósito, caja, ctacte).
-- [x] **Migraciones de TypeORM versionadas** (ver sección aparte):
-      `src/data-source.ts` + `migration:generate/create/run/revert` en
-      `package.json`. Base de desarrollo reseteada a una baseline limpia y
-      migración `InitialSchema` generada y corrida contra base vacía
-      (verificado: `comprobantes` queda con las 18 columnas esperadas,
-      incluidas las 3 nuevas, y `migration:generate --check` no detecta
-      diferencias). `migrationsRun: true` en `AppModule`: se probó levantando
-      la app contra una base vacía y creó el esquema sola, sin `synchronize`.
-- [x] **PDF del comprobante con QR oficial** (RG 4892): `pdf/comprobante-pdf.provider.ts`
-      con `pdfmake` + `qrcode`, endpoint `GET /facturacion/facturas/:id/pdf`.
-      `Comprobante` ahora persiste `detalle` (snapshot de ítems) y `fecha`
-      (CbteFch) — migración `AddDetalleComprobante` corrida. `ResultadoCae`
-      devuelve la `fecha` real que ARCA autorizó. Probado de punta a punta en
-      homologación: Factura B con dos alícuotas (21% + 10,5%, CAE
-      86280550588815), su Nota de Crédito (hereda `detalle`, CAE
-      86280550590700) y una Factura A con receptor CUIT (discrimina Neto/IVA
-      en los totales, CAE 86280550591421). El QR se verificó decodificando el
-      payload de forma independiente: las 12 claves y el dominio
-      `afip.gob.ar/fe/qr` coinciden exactamente con la especificación.
-      **Pendiente operativo:** el `.env` real todavía no tiene
-      `EMISOR_DOMICILIO_COMERCIAL` / `EMISOR_INGRESOS_BRUTOS` /
-      `EMISOR_INICIO_ACTIVIDADES` — sin esos datos el PDF queda incompleto
-      para imprimir de verdad (hoy muestra "-"). Quedan opcionales en el
-      código para no romper el arranque, pero hay que completarlos en el
-      `.env` antes de usar el PDF en serio.
-      **De paso:** se sacó `"incremental": true` de `tsconfig.json` — con
-      `deleteOutDir` de Nest, la caché incremental de `tsc` quedaba
-      desincronizada con `dist/` y `npm run build` terminaba "exitoso" con la
-      mitad de los archivos sin emitir (pasó dos veces en esta sesión, antes
-      de sacarlo).
-- [x] **Qué representa `precioUnitario` según el tipo de comprobante**
-      (confirmado contra el facturador de ARCA): en **Factura A es NETO** (se
-      suma el IVA); en **Factura B (y C) ya viene CON IVA incluido** (se
-      extrae el neto: `neto = importe / (1 + ivaPorcentaje/100)`). Antes se
-      asumía siempre neto, lo cual daba un total mal calculado en toda
-      Factura B. `Comprobante.calcularImportesLinea(tipoFactura, ...)` es el
-      Information Expert que rama según el tipo; lo usan `calcularDesglose` y
-      `armarDetalle`. **Redondeo:** se agrupa por alícuota SIN redondear
-      línea a línea, y se redondea una sola vez el neto/IVA de cada grupo
-      (redondear por línea y sumar da resultados que no cuadran con lo que
-      calcula ARCA). Verificado con los dos casos reales del facturador de
-      ARCA (Factura B: precio 12100 con IVA 21% → neto 10000, IVA 2100, total
-      12100; Factura A: precio neto 10000 con IVA 21% → total 12100) — contra
-      ARCA de verdad (`npm run probar:fe`, CAE 86280551825882) y vía HTTP
-      completo (Gestor + persistencia). Test puro y offline de estos casos en
-      `scripts/probar-calculo-iva.ts` (`npm run probar:calculo`).
-      **Pendiente para el front (documentado, no implementado):** la pantalla
-      de carga tiene que dejar explícito qué precio está pidiendo según el
-      tipo elegido — en B/C es el precio final (con IVA), en A es el neto. Es
-      la misma confusión en la que cayó el cálculo del backend: si la UI no
-      lo aclara, el operador la va a errar.
-- [x] **Unidad de medida por ítem y condición de venta del comprobante.**
-      `ItemFacturaDto.unidadMedida?: number` (código ARCA, default 7 =
-      "unidades" si no se envía) — **no se manda a ARCA**: se confirmó que
-      WSFEv1 (el servicio que usamos para A/B/C) no recibe líneas de detalle,
-      solo totales agregados por alícuota; `unidadMedida` es puramente para
-      nuestro registro y para el PDF (el catálogo Umed sí existe en el SDK,
-      pero pertenece al servicio FEX de exportación, que no usamos). Se guarda
-      en `DetalleItem.unidadMedida` (dentro del jsonb `detalle`) y se imprime
-      en la tabla del PDF.
-      `CondicionVenta` (enum: CONTADO, TARJETA_DEBITO, TARJETA_CREDITO,
-      CUENTA_CORRIENTE, CHEQUE, TRANSFERENCIA_BANCARIA, OTRA) — obligatoria en
-      `CrearFacturaDto`, tampoco se manda a ARCA (mismo motivo: no es un campo
-      de WSFEv1, es metadata que el facturador de ARCA también solo imprime).
-      Columna `condicionVenta` (varchar, nullable por compatibilidad con los
-      comprobantes ya emitidos) en `Comprobante`; se hereda a la Nota de
-      Crédito igual que `detalle`. Se imprime en el PDF.
-      **Dejado preparado, sin implementar (`// TODO(ctacte)` en
-      `FacturacionGestor.emitirFactura`):** cuando `condicionVenta ===
-      CUENTA_CORRIENTE`, la venta es fiada y el módulo de cuentas corrientes
-      (todavía no existe) va a tener que generar el cargo correspondiente ahí.
-      Migración `AddCondicionVenta` generada y corrida — el cambio a
-      `unidadMedida` NO generó migración porque vive dentro de un jsonb
-      (`detalle`), que no tiene esquema fijo para Postgres/TypeORM.
-      Verificado en homologación: Factura B con unidad de medida explícita en
-      un ítem (m) y default en otro (unidades), `condicionVenta:
-      CUENTA_CORRIENTE`, CAE `86280551827902`; su Nota de Crédito hereda
-      `condicionVenta` y `detalle`, CAE `86280551827944`. Los dos aparecen
-      correctamente en el PDF.
-- [ ] **Factura C**: no implementada. Sumar `CbteTipo` 11 es agregar el código
-      al mapeo (`CBTE_TIPO`/`CODIGO_COMPROBANTE` ya tienen el 11 en varios
-      lados como referencia, pero falta el circuito completo) y usar la rama
-      de IVA extraído que ya existe en `calcularImportesLinea` (Factura C es
-      igual que B en ese sentido: precio con IVA incluido, pero además va sin
-      discriminar receptor RI). Pendiente confirmar con el titular si lo
-      necesita — hoy el negocio solo emite A y B.
-- [ ] Confirmar persistencia del comprobante y que la numeración se lleve contra
-      lo que dice ARCA (no un contador propio).
-- [ ] Selector de IVA (21% / 10,5%) en el front cuando se arme la pantalla Angular.
-- [ ] Confirmar condición de IVA del receptor para Factura A.
-- [ ] Confirmar si el local necesita ventas/stock a nivel producto o solo caja +
-      ctacte + facturación.
-- [ ] Antes de ir a producción: `.gitignore` tapando `certs/` y `.env`, egress
+- [x] Trámite ARCA producción (cert + punto de venta).
+- [x] Certificado de homologación (WSASS) + autorización a `wsfe`.
+- [x] Facturación A/B con IVA correcto por tipo, probada de punta a punta.
+- [x] Nota de crédito. PDF con QR. Unidad de medida + condición de venta.
+- [x] Infra de migraciones versionadas.
+- [x] **Ventas (Ficha) Fase 1**: clientes + ficha + líneas
+      (`sistema-local/src/ventas/`), MMSC + GRASP, invariante de ficha única
+      por cliente reforzada con índice único parcial (migración
+      `AddClientesYVentas`). Probada de punta a punta. Sin emisión todavía
+      (ver "Ventas (Ficha)" → Fase 2).
+
+Pendiente:
+- [ ] **Ventas (Ficha) Fase 2**: emitir la ficha como factura (reusando
+      `FacturacionGestor`, condición CONTADO/CUENTA_CORRIENTE) o imprimirla
+      como presupuesto no fiscal; consumir el `TODO(fase2-emision)` de
+      `VentasGestor` y el `TODO(ctacte)` de `FacturacionGestor` para que la
+      factura CC sume al saldo del cliente.
+- [ ] **Módulo de cuentas corrientes real** (saldo por cliente derivado de los
+      movimientos — ver "Ventas (Ficha)").
+- [ ] **Módulo de caja** (montos in/out + arqueo).
+- [ ] **Sistema del depósito** (ABM de productos).
+- [ ] Front en Angular (incluye el selector de IVA 21/10,5 y dejar explícito si el
+      precio va con o sin IVA según el tipo).
+- [ ] **Factura C**: sumar CbteTipo 11 (la lógica de IVA extraído ya existe en
+      `calcularImportesLinea`). Pendiente de confirmar con el titular si la necesita.
+- [ ] Factura A: capturar razón social y domicilio del receptor (obligatorios).
+- [ ] Datos legales del emisor en el `.env` (domicilio, IIBB, inicio de
+      actividades) — los carga Mateo.
+- [ ] Antes de producción: `.gitignore` tapando `certs/` y `.env`, egress
       restringida, `.key` de producción respaldada.
+
+### Preguntas abiertas para la próxima charla con el suegro
+- ¿Aclarar el tema Factura C? (aparecía en pantallas siendo él RI).
+- ¿Cómo imputa los pagos parciales del fiado: contra ventas o saldo global?
+- Datos legales reales (domicilio, IIBB, inicio de actividades).
 
 ---
 
 ## Qué NO hacer
 
-- No facturar contra **producción** de ARCA hasta tener todo probado en homologación.
-- No asociar el CUIT de la empresa en el portal para pruebas de homologación
-  (el error 600 se arregla en el `.env`, no en el portal).
-- No versionar `.key` ni `.env`; no hardcodear CUIT reales en el repo.
+- No facturar contra producción hasta tener todo probado en homologación.
+- No asociar el CUIT de la empresa en el portal para pruebas de homologación (el
+  error 600 se arregla en el `.env`).
+- No versionar `.key` ni `.env`; no hardcodear CUIT reales.
 - No usar `float` para montos.
-- No cambiar el SDK de ARCA ni despinnear la versión sin re-auditar (toca la
-  llave fiscal).
+- No cambiar el SDK de ARCA ni despinnear la versión sin re-auditar.
 - No implementar el modelo rico de stock/ventas/presentaciones sin confirmarlo.
 - No agregar features que el suegro no pidió "porque quedan lindas".
-- No poner `synchronize: true` en ningún entorno más allá de un experimento
-  local descartable, y no volver al `ALTER TABLE` manual: el esquema lo
-  manejan las migraciones (ver "Migraciones de base de datos").
-- No asumir que `precioUnitario` es siempre neto: en Factura A sí, en Factura
-  B (y C) ya viene con IVA incluido (ver "Qué representa `precioUnitario`
-  según el tipo" en el `README.md` de `facturacion/`). Fue un bug real.
+- No asumir que el detalle del comprobante viaja a ARCA: no lo hace (WSFEv1 solo
+  totales).
