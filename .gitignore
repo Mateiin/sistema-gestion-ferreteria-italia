@@ -22,6 +22,9 @@ backups/
 *.sql
 *.csv
 
+# PDFs de prueba (probar:pdf) — no son parte del repo
+comprobante-prueba.pdf
+
 # Logs
 *.log
 *.tsbuildinfo
