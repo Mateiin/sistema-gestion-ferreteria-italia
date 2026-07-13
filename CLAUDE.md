@@ -78,7 +78,7 @@ Corren en dos computadoras distintas y **por ahora no se comunican entre sí**.
 
 ---
 
-## Facturación (ARCA) — `sistema-local/src/facturacion/` — COMPLETA
+## Facturación (ARCA) — `sistema-local/backend/src/facturacion/` — COMPLETA
 
 **Estado: emite A y B, anula con NC y genera PDF con QR. Todo probado de punta a
 punta en homologación.**
@@ -188,7 +188,7 @@ homologación (mezclar da "computador no autorizado").
 
 ---
 
-## Ventas (Ficha) — `sistema-local/src/ventas/` — COMPLETA (Fase 1 + Fase 2)
+## Ventas (Ficha) — `sistema-local/backend/src/ventas/` — COMPLETA (Fase 1 + Fase 2)
 
 Este es el flujo real de trabajo del negocio, confirmado con el suegro. Es el
 "modelo rico" que se había puesto en pausa: **vuelve y es el corazón del local.**
@@ -368,10 +368,12 @@ backend no existen todavía.
 ### Gotchas ya pisados (para no repetirlos)
 - **`tsconfig.json`/`tsconfig.build.json` del backend no tenían `include`**:
   compilaban por default TODO `.ts` bajo `sistema-local/`, así que al crear
-  `frontend/` el build del backend explotaba tratando de compilarlo con su
-  `rootDir`. Los dos tsconfig del backend excluyen `frontend` ahora
-  (`tsconfig.build.json` tiene su propio `exclude` que **reemplaza** al de
-  `tsconfig.json` al extender, no lo hereda — hubo que tocar los dos).
+  `frontend/` como subcarpeta de `sistema-local/` el build del backend
+  explotaba tratando de compilarlo con su `rootDir`. Se solucionó de raíz
+  moviendo el backend a `sistema-local/backend/`: ahora `frontend/` es
+  hermana, no hija, del árbol que compila el backend, así que el `exclude`
+  manual de `frontend` que tenían los dos tsconfig ya no hace falta (se
+  sacó de los dos).
 - **CORS**: `main.ts` del backend tiene `app.enableCors()` (front y back en
   puertos distintos de la misma PC).
 - **`<option [value]="...">` con números rompe el `FormControl`**: un
@@ -431,7 +433,7 @@ Hecho:
 - [x] Nota de crédito. PDF con QR. Unidad de medida + condición de venta.
 - [x] Infra de migraciones versionadas.
 - [x] **Ventas (Ficha) Fase 1**: clientes + ficha + líneas
-      (`sistema-local/src/ventas/`), MMSC + GRASP, invariante de ficha única
+      (`sistema-local/backend/src/ventas/`), MMSC + GRASP, invariante de ficha única
       por cliente reforzada con índice único parcial (migración
       `AddClientesYVentas`). Probada de punta a punta.
 - [x] **Ventas (Ficha) Fase 2**: presupuesto no fiscal, facturar la ficha

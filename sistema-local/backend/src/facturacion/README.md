@@ -67,8 +67,8 @@ EMISOR_DOMICILIO_COMERCIAL="Calle Falsa 123, Localidad, Provincia"
 EMISOR_INGRESOS_BRUTOS=20123456783
 EMISOR_INICIO_ACTIVIDADES=01/2020
 ARCA_AMBIENTE=homologacion        # empezá SIEMPRE en homologacion
-ARCA_CERT_PATH=./certs/ferreteria.crt
-ARCA_KEY_PATH=./certs/ferreteria.key
+ARCA_CERT_PATH=../../certs/ferreteria.crt
+ARCA_KEY_PATH=../../certs/ferreteria.key
 ```
 
 > La clave privada (`ARCA_KEY_PATH`) apunta a un archivo secreto: nunca se sube a

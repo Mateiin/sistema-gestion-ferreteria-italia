@@ -1,7 +1,7 @@
-# Sistema Local
+# Backend
 
 Corre en la PC del local. Cubre lo que el dueño del negocio pidió
-explícitamente, y nada más (ver "Qué NO hacer" en el [`CLAUDE.md`](../CLAUDE.md)
+explícitamente, y nada más (ver "Qué NO hacer" en el [`CLAUDE.md`](../../CLAUDE.md)
 raíz).
 
 ## Módulos
@@ -56,4 +56,4 @@ mismas variables `DB_*` del `.env`.
 
 El detalle completo, las convenciones (plata en `decimal`, saldo derivado, no
 `synchronize: true`) y los puntos pendientes de confirmar están en el
-[`CLAUDE.md`](../CLAUDE.md) de la raíz del repo.
+[`CLAUDE.md`](../../CLAUDE.md) de la raíz del repo.

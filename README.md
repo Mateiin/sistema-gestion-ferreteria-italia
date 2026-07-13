@@ -52,10 +52,12 @@ convenciones de código está en [`CLAUDE.md`](CLAUDE.md).
 
 ```
 .
-├── CLAUDE.md                 Contexto y decisiones del proyecto
-├── sistema-deposito/         ABM de productos del depósito (pendiente)
-└── sistema-local/            Caja, cuentas corrientes y facturación
-    └── src/facturacion/      Módulo de facturación ARCA (ver su propio README)
+├── CLAUDE.md                       Contexto y decisiones del proyecto
+├── sistema-deposito/               ABM de productos del depósito (pendiente)
+└── sistema-local/                  Caja, cuentas corrientes y facturación
+    ├── backend/                    NestJS + TypeORM
+    │   └── src/facturacion/        Módulo de facturación ARCA (ver su propio README)
+    └── frontend/                   Angular
 ```
 
 ## Estado del proyecto
