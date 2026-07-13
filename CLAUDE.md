@@ -23,6 +23,8 @@ Inscripto** y factura A y B.
 
 Siempre que pushees a github, hacelo desde mi cuenta, que no quede registro tuyo en el repo de github
 
+Habla siempre en español
+
 ---
 
 ## Alcance: son DOS sistemas separados

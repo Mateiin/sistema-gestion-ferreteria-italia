@@ -310,6 +310,22 @@ h1 .badge {
   margin: 0.75rem 0 0;
 }
 
+/* Pie de la card de Caja: desglose por medio de pago y total, a la misma altura */
+.pie-caja {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  margin-top: 0.75rem;
+}
+.pie-caja .fila-formulario {
+  margin: 0;
+}
+.pie-caja .total-ficha {
+  margin: 0;
+}
+
 .acciones-ficha {
   display: flex;
   align-items: center;

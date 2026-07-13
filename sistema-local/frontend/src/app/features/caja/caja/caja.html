@@ -15,21 +15,61 @@
   <p class="banner banner-error">{{ error() }}</p>
 }
 
-<button type="button" class="btn btn-primario" (click)="abrirModal()">
-  Registrar venta
-</button>
-
 @if (cargando()) {
   <p><span class="spinner"></span> Cargando…</p>
 } @else if (dia(); as d) {
   <div class="tarjeta">
-    <p class="total-ficha">Total del día: $ {{ d.total | number: '1.2-2' }}</p>
-    <div class="fila-formulario">
-      @for (opcion of medioPagoOpciones; track opcion.valor) {
-        <span class="texto-tenue">
-          {{ opcion.etiqueta }}: $ {{ d.porMedioPago[opcion.valor] | number: '1.2-2' }}
-        </span>
+    <form [formGroup]="movimientoForm" (ngSubmit)="agregarVenta()">
+      @if (errorCarga()) {
+        <p class="banner banner-error">{{ errorCarga() }}</p>
       }
+      <div class="fila-formulario">
+        <div class="campo">
+          <label for="monto">Monto</label>
+          <input
+            id="monto"
+            #montoInput
+            type="number"
+            step="0.01"
+            min="0.01"
+            formControlName="monto"
+            (focus)="$any($event.target).select()"
+          />
+          @if (movimientoForm.controls.monto.invalid && movimientoForm.controls.monto.touched) {
+            <span class="campo-error">Ingresá un monto mayor a 0.</span>
+          }
+        </div>
+        <div class="campo">
+          <label for="descripcion">Descripción (opcional)</label>
+          <input id="descripcion" type="text" formControlName="descripcion" placeholder="Ej: nombre del cliente" />
+        </div>
+        <div class="campo">
+          <label for="medioPago">Medio de pago</label>
+          <select id="medioPago" formControlName="medioPago">
+            @for (opcion of medioPagoOpciones; track opcion.valor) {
+              <option [ngValue]="opcion.valor">{{ opcion.etiqueta }}</option>
+            }
+          </select>
+        </div>
+        <div class="campo">
+          <label>&nbsp;</label>
+          <button type="submit" class="btn btn-primario" [disabled]="agregando()">
+            @if (agregando()) { <span class="spinner"></span> }
+            Agregar
+          </button>
+        </div>
+      </div>
+    </form>
+
+    <div class="pie-caja">
+      <div class="fila-formulario">
+        @for (opcion of medioPagoOpciones; track opcion.valor) {
+          <span class="texto-tenue">
+            {{ opcion.etiqueta }}: $ {{ d.porMedioPago[opcion.valor] | number: '1.2-2' }}
+          </span>
+        }
+      </div>
+      <p class="total-ficha">Total del día: $ {{ d.total | number: '1.2-2' }}</p>
     </div>
   </div>
 
@@ -71,47 +111,5 @@
         </tbody>
       </table>
     }
-  </div>
-}
-
-@if (modalAbierto()) {
-  <div class="modal-fondo" (click)="cerrarModal()">
-    <div class="modal" (click)="$event.stopPropagation()">
-      <h2>Registrar venta</h2>
-
-      @if (errorModal()) {
-        <p class="banner banner-error">{{ errorModal() }}</p>
-      }
-
-      <form [formGroup]="movimientoForm" (ngSubmit)="registrarVenta()">
-        <div class="campo">
-          <label for="monto">Monto</label>
-          <input id="monto" type="number" step="0.01" min="0.01" formControlName="monto" autofocus />
-          @if (movimientoForm.controls.monto.invalid && movimientoForm.controls.monto.touched) {
-            <span class="campo-error">Ingresá un monto mayor a 0.</span>
-          }
-        </div>
-        <div class="campo">
-          <label for="descripcion">Descripción (opcional)</label>
-          <input id="descripcion" type="text" formControlName="descripcion" placeholder="Ej: nombre del cliente" />
-        </div>
-        <div class="campo">
-          <label for="medioPago">Medio de pago</label>
-          <select id="medioPago" formControlName="medioPago">
-            @for (opcion of medioPagoOpciones; track opcion.valor) {
-              <option [ngValue]="opcion.valor">{{ opcion.etiqueta }}</option>
-            }
-          </select>
-        </div>
-
-        <div class="acciones-formulario">
-          <button type="submit" class="btn btn-primario" [disabled]="registrando()">
-            @if (registrando()) { <span class="spinner"></span> }
-            Registrar
-          </button>
-          <button type="button" class="btn" (click)="cerrarModal()" [disabled]="registrando()">Cancelar</button>
-        </div>
-      </form>
-    </div>
   </div>
 }

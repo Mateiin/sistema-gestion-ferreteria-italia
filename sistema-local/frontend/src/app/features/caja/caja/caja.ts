@@ -1,5 +1,5 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { Component, inject, signal } from '@angular/core';
+import { Component, ElementRef, ViewChild, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { DiaCaja, MEDIO_PAGO_OPCIONES, MedioPago } from '../../../core/models/caja.model';
 import { CajaService } from '../../../core/services/caja.service';
@@ -21,6 +21,8 @@ export class Caja {
   private readonly fb = inject(FormBuilder);
   private readonly cajaService = inject(CajaService);
 
+  @ViewChild('montoInput') private montoInput?: ElementRef<HTMLInputElement>;
+
   protected readonly medioPagoOpciones = MEDIO_PAGO_OPCIONES;
   protected readonly MedioPago = MedioPago;
 
@@ -30,9 +32,8 @@ export class Caja {
   protected readonly cargando = signal(true);
   protected readonly error = signal<string | null>(null);
 
-  protected readonly modalAbierto = signal(false);
-  protected readonly registrando = signal(false);
-  protected readonly errorModal = signal<string | null>(null);
+  protected readonly agregando = signal(false);
+  protected readonly errorCarga = signal<string | null>(null);
   protected readonly movimientoForm = this.fb.nonNullable.group({
     monto: [0, [Validators.required, Validators.min(0.01)]],
     descripcion: [''],
@@ -51,38 +52,40 @@ export class Caja {
     this.cargar();
   }
 
-  private cargar(): void {
-    this.cargando.set(true);
+  /**
+   * `mostrarSpinner` en false para refrescos posteriores a un alta/borrado:
+   * poner `cargando` en true destruye y recrea el bloque entero (según el
+   * @if/@else del template), lo que se lleva puesto el foco recién devuelto
+   * al campo monto — inaceptable para carga rápida y seguida en el mostrador.
+   *
+   * Siempre reenfoca monto al terminar: es la única forma confiable de
+   * lograrlo también en la carga inicial — el campo no existe en el DOM
+   * todavía mientras `cargando` es true (está detrás del spinner), así que
+   * intentarlo antes de que la respuesta llegue no tiene efecto.
+   */
+  private cargar(mostrarSpinner = true): void {
+    if (mostrarSpinner) this.cargando.set(true);
     this.error.set(null);
     this.cajaService.dia(this.fechaSeleccionada()).subscribe({
       next: (dia) => {
         this.dia.set(dia);
-        this.cargando.set(false);
+        if (mostrarSpinner) this.cargando.set(false);
+        this.enfocarMonto();
       },
       error: (err) => {
         this.error.set(extraerMensajeError(err));
-        this.cargando.set(false);
+        if (mostrarSpinner) this.cargando.set(false);
       },
     });
   }
 
-  protected abrirModal(): void {
-    this.errorModal.set(null);
-    this.movimientoForm.reset({ monto: 0, descripcion: '', medioPago: MedioPago.EFECTIVO });
-    this.modalAbierto.set(true);
-  }
-
-  protected cerrarModal(): void {
-    this.modalAbierto.set(false);
-  }
-
-  protected registrarVenta(): void {
+  protected agregarVenta(): void {
     if (this.movimientoForm.invalid) {
       this.movimientoForm.markAllAsTouched();
       return;
     }
-    this.registrando.set(true);
-    this.errorModal.set(null);
+    this.agregando.set(true);
+    this.errorCarga.set(null);
     const valor = this.movimientoForm.getRawValue();
     this.cajaService
       .registrar({
@@ -92,18 +95,18 @@ export class Caja {
       })
       .subscribe({
         next: () => {
-          this.registrando.set(false);
-          this.modalAbierto.set(false);
+          this.agregando.set(false);
+          this.movimientoForm.reset({ monto: 0, descripcion: '', medioPago: MedioPago.EFECTIVO });
           // Si se cargó una venta, mostramos el día de hoy (donde cae el registro).
           if (!this.esHoy()) {
             this.cambiarFecha(fechaHoyLocal());
           } else {
-            this.cargar();
+            this.cargar(false);
           }
         },
         error: (err) => {
-          this.errorModal.set(extraerMensajeError(err));
-          this.registrando.set(false);
+          this.errorCarga.set(extraerMensajeError(err));
+          this.agregando.set(false);
         },
       });
   }
@@ -114,12 +117,26 @@ export class Caja {
     this.cajaService.borrar(id).subscribe({
       next: () => {
         this.borrandoId.set(null);
-        this.cargar();
+        this.cargar(false);
       },
       error: (err) => {
         this.error.set(extraerMensajeError(err));
         this.borrandoId.set(null);
       },
+    });
+  }
+
+  /**
+   * Foco + selección explícitos (no alcanza con disparar `focus()`: si el
+   * campo ya estaba enfocado —típico al cargar seguido con Enter— el
+   * navegador no reemite el evento `focus` y el `select()` del template
+   * nunca corre, dejando el cursor al final del "0" en vez de reemplazarlo).
+   */
+  private enfocarMonto(): void {
+    setTimeout(() => {
+      const elemento = this.montoInput?.nativeElement;
+      elemento?.focus();
+      elemento?.select();
     });
   }
 }
