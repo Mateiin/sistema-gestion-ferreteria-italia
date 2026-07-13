@@ -1,0 +1,117 @@
+<div class="cabecera-lista">
+  <h1>Caja</h1>
+  <div class="campo" style="margin-bottom: 0">
+    <label for="fecha">Fecha</label>
+    <input
+      id="fecha"
+      type="date"
+      [value]="fechaSeleccionada()"
+      (change)="cambiarFecha($any($event.target).value)"
+    />
+  </div>
+</div>
+
+@if (error()) {
+  <p class="banner banner-error">{{ error() }}</p>
+}
+
+<button type="button" class="btn btn-primario" (click)="abrirModal()">
+  Registrar venta
+</button>
+
+@if (cargando()) {
+  <p><span class="spinner"></span> Cargando…</p>
+} @else if (dia(); as d) {
+  <div class="tarjeta">
+    <p class="total-ficha">Total del día: $ {{ d.total | number: '1.2-2' }}</p>
+    <div class="fila-formulario">
+      @for (opcion of medioPagoOpciones; track opcion.valor) {
+        <span class="texto-tenue">
+          {{ opcion.etiqueta }}: $ {{ d.porMedioPago[opcion.valor] | number: '1.2-2' }}
+        </span>
+      }
+    </div>
+  </div>
+
+  <div class="tarjeta">
+    <h2>Ventas del día</h2>
+    @if (d.movimientos.length === 0) {
+      <p class="texto-tenue">Todavía no hay ventas cargadas para este día.</p>
+    } @else {
+      <table>
+        <thead>
+          <tr>
+            <th>Hora</th>
+            <th>Descripción</th>
+            <th>Medio de pago</th>
+            <th>Monto</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (mov of d.movimientos; track mov.id) {
+            <tr>
+              <td>{{ mov.createdAt | date: 'HH:mm' }}</td>
+              <td>{{ mov.descripcion || '—' }}</td>
+              <td>{{ mov.medioPago }}</td>
+              <td>$ {{ mov.monto | number: '1.2-2' }}</td>
+              <td>
+                <button
+                  type="button"
+                  class="btn btn-chico btn-peligro"
+                  (click)="borrar(mov.id)"
+                  [disabled]="borrandoId() === mov.id"
+                >
+                  @if (borrandoId() === mov.id) { <span class="spinner"></span> }
+                  Borrar
+                </button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+  </div>
+}
+
+@if (modalAbierto()) {
+  <div class="modal-fondo" (click)="cerrarModal()">
+    <div class="modal" (click)="$event.stopPropagation()">
+      <h2>Registrar venta</h2>
+
+      @if (errorModal()) {
+        <p class="banner banner-error">{{ errorModal() }}</p>
+      }
+
+      <form [formGroup]="movimientoForm" (ngSubmit)="registrarVenta()">
+        <div class="campo">
+          <label for="monto">Monto</label>
+          <input id="monto" type="number" step="0.01" min="0.01" formControlName="monto" autofocus />
+          @if (movimientoForm.controls.monto.invalid && movimientoForm.controls.monto.touched) {
+            <span class="campo-error">Ingresá un monto mayor a 0.</span>
+          }
+        </div>
+        <div class="campo">
+          <label for="descripcion">Descripción (opcional)</label>
+          <input id="descripcion" type="text" formControlName="descripcion" placeholder="Ej: nombre del cliente" />
+        </div>
+        <div class="campo">
+          <label for="medioPago">Medio de pago</label>
+          <select id="medioPago" formControlName="medioPago">
+            @for (opcion of medioPagoOpciones; track opcion.valor) {
+              <option [ngValue]="opcion.valor">{{ opcion.etiqueta }}</option>
+            }
+          </select>
+        </div>
+
+        <div class="acciones-formulario">
+          <button type="submit" class="btn btn-primario" [disabled]="registrando()">
+            @if (registrando()) { <span class="spinner"></span> }
+            Registrar
+          </button>
+          <button type="button" class="btn" (click)="cerrarModal()" [disabled]="registrando()">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+}

@@ -52,6 +52,10 @@ export const routes: Routes = [
     ],
   },
   {
+    path: 'caja',
+    loadComponent: () => import('./features/caja/caja/caja').then((m) => m.Caja),
+  },
+  {
     path: 'cuentas-por-cobrar',
     children: [
       {
