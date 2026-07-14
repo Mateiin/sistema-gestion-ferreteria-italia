@@ -75,9 +75,46 @@ export class ComprobantePdfProvider {
       .join(' ')
       .toUpperCase();
 
+    // El bloque de totales + QR/CAE va en el `footer` (no en `content`) para
+    // que quede SIEMPRE anclado al pie de la hoja, sea cual sea la cantidad
+    // de ítems: el `footer` de pdfmake se dibuja en una franja de altura fija
+    // pegada al margen inferior, independiente del flujo del contenido de
+    // arriba. Factura A muestra siempre el desglose completo por alícuota (10
+    // líneas + QR), más alto que Factura B (una sola línea + QR); el margen
+    // inferior reservado se ajusta a eso para que no quede espacio muerto de más.
+    const margenInferior = esA ? 235 : 150;
+
     return {
       defaultStyle: { font: 'Helvetica', fontSize: 9 },
-      pageMargins: [30, 30, 30, 30] as [number, number, number, number],
+      pageMargins: [30, 30, 30, margenInferior] as [number, number, number, number],
+      footer: (currentPage: number, pageCount: number) => {
+        // Si el detalle de ítems desborda a una página siguiente, el bloque
+        // de totales solo se imprime en la ÚLTIMA (evita repetirlo en cada
+        // página intermedia).
+        if (currentPage !== pageCount) return null;
+        return {
+          margin: [30, 0, 30, 0] as [number, number, number, number],
+          stack: [
+            armarTotalesArca({
+              esA,
+              neto: Number(comprobante.importeNeto),
+              desglose: this.armarDesgloseTotales(comprobante),
+              total: Number(comprobante.importeTotal),
+            }),
+            {
+              text: `Pág. ${currentPage}/${pageCount}`,
+              alignment: 'center' as const,
+              fontSize: 8,
+              margin: [0, 6, 0, 2] as [number, number, number, number],
+            },
+            armarPieAutorizadoArca({
+              qrDataUrl,
+              cae: comprobante.cae,
+              vencimientoCae: formatearVencimientoCae(comprobante.vencimientoCae),
+            }),
+          ],
+        };
+      },
       content: [
         armarEncabezadoArca({
           letra,
@@ -113,18 +150,6 @@ export class ComprobantePdfProvider {
             : undefined,
         }),
         armarTablaItemsArca(this.armarFilasItems(comprobante, esA)),
-        { text: ' ', margin: [0, 6, 0, 0] as [number, number, number, number] },
-        armarTotalesArca({
-          esA,
-          neto: Number(comprobante.importeNeto),
-          desglose: this.armarDesgloseTotales(comprobante),
-          total: Number(comprobante.importeTotal),
-        }),
-        armarPieAutorizadoArca({
-          qrDataUrl,
-          cae: comprobante.cae,
-          vencimientoCae: formatearVencimientoCae(comprobante.vencimientoCae),
-        }),
       ],
       styles: stylesArca,
     };

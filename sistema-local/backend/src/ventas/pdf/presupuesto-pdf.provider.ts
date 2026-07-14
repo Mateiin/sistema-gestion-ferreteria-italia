@@ -55,12 +55,42 @@ export class PresupuestoPdfProvider {
     const esA = cliente.tipoFacturaCorrespondiente() === 'A';
     const lineas = venta.lineas ?? [];
 
+    // Igual criterio que `ComprobantePdfProvider`: el recuadro de totales va
+    // en el `footer`, anclado al pie de la hoja sin importar la cantidad de
+    // líneas cargadas. El presupuesto no lleva QR/CAE, así que el margen
+    // reservado es más chico que el de la factura; se le suma el lugar para
+    // el aviso, que va debajo del recuadro de totales, centrado y al pie.
+    const margenInferior = (esA ? 130 : 65) + 16;
+
     return {
       defaultStyle: { font: 'Helvetica', fontSize: 9 },
-      pageMargins: [30, 30, 30, 30] as [number, number, number, number],
+      pageMargins: [30, 30, 30, margenInferior] as [number, number, number, number],
+      footer: (currentPage: number, pageCount: number) => {
+        if (currentPage !== pageCount) return null;
+        return {
+          margin: [30, 0, 30, 0] as [number, number, number, number],
+          stack: [
+            armarTotalesArca({
+              esA,
+              neto: venta.total(),
+              desglose: this.armarDesgloseTotales(lineas),
+              total: this.calcularTotalConIva(lineas),
+            }),
+            {
+              text: 'Documento no válido como factura',
+              style: 'aviso',
+              alignment: 'center' as const,
+              margin: [0, 8, 0, 0] as [number, number, number, number],
+            },
+          ],
+        };
+      },
       content: [
         armarEncabezadoArca({
-          letra: cliente.tipoFacturaCorrespondiente(),
+          // No es un comprobante fiscal (sin CAE): letra 'X', no la letra de
+          // la futura factura (`esA` sigue rigiendo el formato de ítems/
+          // totales, que sí debe anticipar A o B).
+          letra: 'X',
           tituloDocumento: 'PRESUPUESTO',
           puntoVenta: emisor.puntoVenta,
           numeroComprobante: venta.id.slice(0, 8).toUpperCase(),
@@ -76,11 +106,6 @@ export class PresupuestoPdfProvider {
             inicioActividades: emisor.inicioActividades,
           },
         }),
-        {
-          text: 'Documento no válido como factura',
-          style: 'aviso',
-          margin: [0, 0, 0, 8] as [number, number, number, number],
-        },
         armarReceptorArca({
           documento: formatearReceptorDoc(cliente.docTipo, Number(cliente.docNro)),
           razonSocial: cliente.razonSocial,
@@ -89,13 +114,6 @@ export class PresupuestoPdfProvider {
           condicionVenta: 'A definir al facturar',
         }),
         armarTablaItemsArca(this.armarFilasItems(lineas, esA)),
-        { text: ' ', margin: [0, 6, 0, 0] as [number, number, number, number] },
-        armarTotalesArca({
-          esA,
-          neto: venta.total(),
-          desglose: this.armarDesgloseTotales(lineas),
-          total: this.calcularTotalConIva(lineas),
-        }),
       ],
       styles: {
         ...stylesArca,
