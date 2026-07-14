@@ -43,9 +43,8 @@ export class ItemFacturaDto {
   cantidad: number;
 
   /**
-   * En Factura A es NETO (sin IVA). En Factura B (y C) ya viene CON IVA
-   * incluido — confirmado contra el facturador de ARCA. Ver
-   * `Comprobante.calcularImportesLinea`, que rama según el tipo.
+   * Siempre NETO (sin IVA), sea Factura A o B — así es como se carga en la
+   * ficha. Ver `Comprobante.calcularImportesLinea`.
    */
   @IsNumber()
   @Min(0)

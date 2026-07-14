@@ -26,7 +26,9 @@ import { ComprobantePdfProvider } from '../pdf/comprobante-pdf.provider';
       useValue: crearArcaSdkProvider,
     },
   ],
-  // Ventas (Fase 2) reusa FacturacionGestor para emitir la ficha como factura.
-  exports: [FacturacionGestor],
+  // Ventas (Fase 2) reusa FacturacionGestor para emitir la ficha como factura,
+  // y 'EMISOR' para armar el encabezado del PDF de presupuesto con el mismo
+  // molde que la factura (ver ventas/pdf/presupuesto-pdf.provider.ts).
+  exports: [FacturacionGestor, 'EMISOR'],
 })
 export class FacturacionModule {}

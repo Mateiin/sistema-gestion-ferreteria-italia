@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -18,6 +19,7 @@ import { MovimientoCtaCte } from '../modelo/movimiento-cta-cte.entity';
 import { AgregarLineaDto } from '../dto/agregar-linea.dto';
 import { PresupuestoPdfProvider } from '../pdf/presupuesto-pdf.provider';
 import { FacturacionGestor } from '../../facturacion/gestor/facturacion.gestor';
+import { Emisor } from '../../facturacion/config/emisor';
 import {
   CondicionIvaReceptorDto,
   CondicionVenta,
@@ -44,6 +46,9 @@ export class VentasGestor {
     private readonly dataSource: DataSource,
     private readonly pdfProvider: PresupuestoPdfProvider,
     private readonly facturacion: FacturacionGestor,
+    // Mismo emisor único que usa FacturacionModule, reexportado desde ahí
+    // (ver FacturacionModule.exports) para armar el encabezado del PDF.
+    @Inject('EMISOR') private readonly emisor: Emisor,
   ) {}
 
   /**
@@ -117,7 +122,7 @@ export class VentasGestor {
     ventaId: string,
   ): Promise<{ buffer: Buffer; nombreArchivo: string }> {
     const venta = await this.obtener(ventaId);
-    const buffer = await this.pdfProvider.generar(venta);
+    const buffer = await this.pdfProvider.generar(venta, this.emisor);
     return { buffer, nombreArchivo: venta.nombreArchivoPresupuesto() };
   }
 

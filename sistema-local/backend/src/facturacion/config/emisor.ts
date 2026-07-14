@@ -9,6 +9,7 @@
  * se versiona en git.
  */
 import * as fs from 'fs';
+import * as path from 'path';
 
 export type Ambiente = 'homologacion' | 'produccion';
 export type CondicionIva = 'RI' | 'MONOTRIBUTO';
@@ -35,6 +36,44 @@ export interface Emisor {
   domicilioComercial?: string;
   ingresosBrutos?: string;
   inicioActividades?: string;
+  /**
+   * Logo del emisor, ya como dataURL (base64), listo para pdfmake. `undefined`
+   * si `EMISOR_LOGO_PATH` no está configurado o el archivo no se pudo leer —
+   * en ese caso el PDF cae al texto de la razón social, no rompe la generación.
+   */
+  logoDataUrl?: string;
+}
+
+const EXTENSIONES_LOGO_SOPORTADAS: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+};
+
+/**
+ * Carga el logo del emisor como dataURL si `EMISOR_LOGO_PATH` está configurado
+ * y el archivo existe. Nunca tira: si falta la variable, el archivo no
+ * existe o la extensión no es soportada, devuelve `undefined` y el PDF usa el
+ * fallback de texto (ver `formato-arca.ts`).
+ */
+function cargarLogoDataUrl(rutaLogo?: string): string | undefined {
+  if (!rutaLogo) return undefined;
+  const mime = EXTENSIONES_LOGO_SOPORTADAS[path.extname(rutaLogo).toLowerCase()];
+  if (!mime) {
+    console.warn(
+      `EMISOR_LOGO_PATH ("${rutaLogo}") tiene una extensión no soportada (usá .png o .jpg): se usa el nombre del emisor como texto.`,
+    );
+    return undefined;
+  }
+  try {
+    const buffer = fs.readFileSync(rutaLogo);
+    return `data:${mime};base64,${buffer.toString('base64')}`;
+  } catch {
+    console.warn(
+      `No se pudo leer EMISOR_LOGO_PATH ("${rutaLogo}"): se usa el nombre del emisor como texto.`,
+    );
+    return undefined;
+  }
 }
 
 /**
@@ -61,5 +100,6 @@ export function cargarEmisorDesdeEnv(): Emisor {
     domicilioComercial: process.env.EMISOR_DOMICILIO_COMERCIAL,
     ingresosBrutos: process.env.EMISOR_INGRESOS_BRUTOS,
     inicioActividades: process.env.EMISOR_INICIO_ACTIVIDADES,
+    logoDataUrl: cargarLogoDataUrl(process.env.EMISOR_LOGO_PATH),
   };
 }

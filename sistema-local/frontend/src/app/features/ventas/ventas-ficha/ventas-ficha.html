@@ -106,7 +106,7 @@
       <h2>Agregar línea</h2>
       <p class="ayuda">
         Este cliente corresponde a <strong>Factura {{ tipoFacturaCliente(v.cliente) }}</strong>:
-        cargá el {{ etiquetaPrecio(v.cliente) | lowercase }}.
+        cargá el {{ etiquetaPrecio() | lowercase }}.
       </p>
       <form [formGroup]="lineaForm" (ngSubmit)="agregarLinea()">
         <div class="campo">
@@ -122,7 +122,7 @@
             <input id="cantidad" type="number" step="0.001" min="0" formControlName="cantidad" />
           </div>
           <div class="campo">
-            <label for="precioUnitario">{{ etiquetaPrecio(v.cliente) }}</label>
+            <label for="precioUnitario">{{ etiquetaPrecio() }}</label>
             <input id="precioUnitario" type="number" step="0.01" min="0" formControlName="precioUnitario" />
           </div>
           <div class="campo">

@@ -32,8 +32,8 @@ async function main() {
     { descripcion: 'Tornillo autoperforante', cantidad: 100, precioUnitario: 1105, ivaPorcentaje: 10.5, unidadMedida: 7 }, // unidades
   ];
 
-  const desglose = Comprobante.calcularDesglose('B', items);
-  const detalle = Comprobante.armarDetalle('B', items);
+  const desglose = Comprobante.calcularDesglose(items);
+  const detalle = Comprobante.armarDetalle(items);
   const totales = Comprobante.totalizar(desglose);
 
   console.log('\nSolicitando CAE a ARCA homologación (Factura B, consumidor final)...');

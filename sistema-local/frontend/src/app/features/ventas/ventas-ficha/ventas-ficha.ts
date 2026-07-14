@@ -87,8 +87,8 @@ export class VentasFicha {
     return tipoFacturaDeCliente(cliente);
   }
 
-  protected etiquetaPrecio(cliente: Cliente): string {
-    return this.tipoFacturaCliente(cliente) === 'A' ? 'Precio NETO (sin IVA)' : 'Precio (IVA incluido)';
+  protected etiquetaPrecio(): string {
+    return 'Precio NETO (sin IVA)';
   }
 
   protected subtotalLinea(cantidad: number | string, precioUnitario: number | string): number {

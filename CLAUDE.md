@@ -4,11 +4,11 @@ Este archivo le da contexto a Claude para trabajar en este proyecto. Leelo al
 inicio de cada sesión. Manténganlo actualizado: un CLAUDE.md viejo manda a
 construir sobre supuestos que ya no valen.
 
-> Última actualización: arrancó el frontend — Angular Fase 1 en
-> `sistema-local/frontend/`, probado de punta a punta contra el backend real
-> en homologación (Playwright): clientes, ficha con líneas, presupuesto,
-> facturar (A/B según cliente) y cuenta corriente, todo desde la pantalla.
-> Próximo: módulo de caja y sistema del depósito.
+> Última actualización: rediseño del PDF de factura/NC y presupuesto para
+> seguir el molde oficial de ARCA (encabezado, franja del receptor, tabla de
+> ítems de 9 columnas, totales con IVA discriminado en A). Logo del emisor
+> opcional vía `EMISOR_LOGO_PATH`. Ver "Facturación (ARCA)" → "PDF: molde
+> oficial de ARCA". Próximo: sistema del depósito.
 
 ---
 
@@ -80,8 +80,23 @@ Corren en dos computadoras distintas y **por ahora no se comunican entre sí**.
 
 ## Facturación (ARCA) — `sistema-local/backend/src/facturacion/` — COMPLETA
 
-**Estado: emite A y B, anula con NC y genera PDF con QR. Todo probado de punta a
-punta en homologación.**
+**Estado: emite A y B, anula con NC y genera PDF con QR, con el layout del
+molde oficial de ARCA. Todo probado de punta a punta en homologación.**
+
+### PDF: molde oficial de ARCA
+`pdf/formato-arca.ts` arma los bloques del formulario oficial (encabezado con
+la letra en un recuadro, franja del receptor, tabla de ítems de 9 columnas —
+Código/Producto/Cantidad/U. medida/Precio Unit./% Bonif/Subtotal/Alícuota
+IVA/Subtotal c/IVA — y bloque de totales) y lo reusan `pdf/comprobante-pdf.provider.ts`
+(factura/NC, con QR y CAE) y `ventas/pdf/presupuesto-pdf.provider.ts`
+(presupuesto, sin QR/CAE). Factura A: precio unitario y subtotal en NETO, IVA
+discriminado por alícuota en totales. Factura B: precio unitario y subtotal
+con IVA incluido (el dato guardado sigue siendo siempre NETO — es solo una
+decisión de qué se imprime), totales sin discriminar. No hay "código de
+producto" en este dominio todavía (ver "Sistema A — Depósito"), esa columna
+sale en blanco. Logo del emisor opcional vía `EMISOR_LOGO_PATH` (.png/.jpg):
+si falta, cae al texto de la razón social sin romper la generación. Detalle
+completo en `facturacion/README.md`.
 
 ### Arquitectura
 - `interfaces/arca-provider.interface.ts` — PORT (intención de dominio).
@@ -98,18 +113,18 @@ punta en homologación.**
 WSAA (autenticación con certificado) → Ticket de Acceso → WSFEv1 → CAE. El SDK
 maneja el WSAA y el cacheo del ticket.
 
-### IVA: el cálculo DEPENDE del tipo de comprobante (crítico)
-`Comprobante.calcularImportesLinea(tipoFactura, cantidad, precioUnitario, ivaPorcentaje)`:
-- **Factura A**: `precioUnitario` es NETO. Se SUMA el IVA. El IVA se discrimina.
-- **Factura B (y C)**: `precioUnitario` viene CON IVA INCLUIDO. El neto se
-  EXTRAE: `neto = precio / (1 + iva/100)`. El IVA va contenido.
+### IVA: `precioUnitario` siempre es NETO (confirmado con el titular)
+`Comprobante.calcularImportesLinea(cantidad, precioUnitario, ivaPorcentaje)`:
+- `precioUnitario` es siempre **NETO** (sin IVA), sea Factura A o B. Se SUMA
+  el IVA en los dos casos — ya NO rama por tipo de comprobante. Así es como
+  el suegro carga el precio en la ficha en la práctica (confirmado
+  2026-07-13; reemplaza el supuesto anterior de "B viene con IVA incluido",
+  que resultó incorrecto).
 - **Redondeo**: se acumula sin redondear y se redondea UNA vez por alícuota
   agrupada (no por línea). Redondear por línea da diferencias de centavos que
-  ARCA rechaza. Verificado: 3 ítems misma alícuota → 10165.29 agrupando vs
-  10165.28 por línea.
-- Front: la pantalla de carga de la ficha (`ventas-ficha`) ya deja esto
-  EXPLÍCITO con un label dinámico según el tipo de factura del cliente — ver
-  sección "Frontend".
+  ARCA rechaza.
+- Front: la pantalla de carga de la ficha (`ventas-ficha`) muestra el label
+  fijo "Precio NETO (sin IVA)" — ver sección "Frontend".
 
 ### Qué se envía a ARCA y qué no
 WSFEv1 **no recibe líneas de detalle**: solo totales por alícuota. Por lo tanto,
@@ -306,19 +321,15 @@ serio, ahí se afina la imputación puntual (ver "Pendiente de confirmar").
   contra la factura puntual o baja el saldo global? (Baja prioridad: no lo usa hoy.)
 - ¿Da recibo al cobrar una CC? (Baja prioridad por lo mismo.)
 
-### Supuesto a confirmar con el titular: qué es `precioUnitario` en la ficha
+### `precioUnitario` en la ficha: siempre NETO, confirmado (2026-07-13)
 El precio que se carga en una línea de la ficha sigue la MISMA convención que
-`Comprobante.calcularImportesLinea` (ver sección Facturación), pero el tipo de
-factura ya no lo elige quien factura: lo **deriva el cliente**
-(`Cliente.tipoFacturaCorrespondiente()`). Concretamente: para un cliente
-Responsable Inscripto (Factura A) el precio cargado en la línea tiene que ser
-el **NETO** (sin IVA); para el resto (Factura B) va **con IVA incluido**. Es
-fácil pisarla: la cooperativa de agua (cliente real, RI) hay que cargarle
-precio neto, y si alguien la carga con IVA incluido por hábito, la Factura A
-sale mal sin que nada lo marque a nivel de datos. El frontend (ver sección
-"Frontend") ya deja esto explícito en la pantalla de carga (label dinámico
-según el cliente); lo que sigue **pendiente** es confirmar el supuesto en
-sí con el suegro, no la UI.
+`Comprobante.calcularImportesLinea` (ver sección Facturación): **siempre
+NETO (sin IVA)**, sea la ficha de un cliente Responsable Inscripto (Factura
+A) o de cualquier otro (Factura B). Ya no depende del tipo de cliente/factura
+— el supuesto anterior ("en B va con IVA incluido") no reflejaba cómo el
+suegro carga los precios en la práctica y quedó reemplazado. El frontend
+(ver sección "Frontend") muestra el label fijo "Precio NETO (sin IVA)" en la
+pantalla de carga.
 
 ---
 
@@ -347,12 +358,14 @@ backend no existen todavía.
 - `features/ventas/ventas-ficha/` — **la pantalla principal**. Dos estados: sin
   `ventaId` en la ruta muestra el buscador de cliente (`POST /ventas/abrir` al
   elegir uno y navega a `/ventas/:id`); con `ventaId` muestra la ficha. El
-  label del campo de precio es dinámico según
+  label del campo de precio es fijo ("Precio NETO (sin IVA)", ver
+  `etiquetaPrecio()`) — ya no depende del tipo de factura del cliente.
   `tipoFacturaDeCliente(cliente)` (mismo mapeo que
   `Cliente.tipoFacturaCorrespondiente()` del backend, duplicado a propósito en
   `core/models/cliente.model.ts` para no acoplar el front a las entidades de
-  TypeORM). "Facturar" abre un modal simple (sin librería, `position: fixed` +
-  overlay) para elegir Contado/Cuenta corriente.
+  TypeORM) se sigue usando para mostrar "Factura A/B" en el mensaje de ayuda.
+  "Facturar" abre un modal simple (sin librería, `position: fixed` + overlay)
+  para elegir Contado/Cuenta corriente.
 - `features/ventas/fichas-abiertas/` — `GET /ventas/abiertas`.
 - `features/cuentas/` — `cuentas-lista` (`GET /clientes/con-saldo`) y
   `cuenta-detalle` (`GET /clientes/:id/cuenta` + registrar pago).
@@ -429,7 +442,8 @@ Como contenedor/cron en el Compose.
 Hecho:
 - [x] Trámite ARCA producción (cert + punto de venta).
 - [x] Certificado de homologación (WSASS) + autorización a `wsfe`.
-- [x] Facturación A/B con IVA correcto por tipo, probada de punta a punta.
+- [x] Facturación A/B, `precioUnitario` siempre NETO (confirmado con el
+      titular), probada de punta a punta.
 - [x] Nota de crédito. PDF con QR. Unidad de medida + condición de venta.
 - [x] Infra de migraciones versionadas.
 - [x] **Ventas (Ficha) Fase 1**: clientes + ficha + líneas
@@ -450,8 +464,8 @@ Hecho:
       completados siempre desde `Cliente` al facturar la ficha).
 - [x] **Frontend Fase 1** (`sistema-local/frontend/`, Angular 22 standalone):
       circuito núcleo — clientes (ABM), ficha (buscar/abrir cliente, cargar
-      líneas con selector de IVA 21/10,5 y label de precio dinámico según el
-      cliente, presupuesto, facturar con modal de condición de venta), y
+      líneas con selector de IVA 21/10,5 y label de precio NETO fijo,
+      presupuesto, facturar con modal de condición de venta), y
       cuentas por cobrar (saldo, movimientos, registrar pago). Probado de
       punta a punta con Playwright contra ARCA homologación real, sin errores
       de consola. Detalle completo en "Frontend".
@@ -459,13 +473,9 @@ Hecho:
 Pendiente:
 - [ ] **Módulo de caja** (montos in/out + arqueo) — ni backend ni frontend.
 - [ ] **Sistema del depósito** (ABM de productos) — ni backend ni frontend.
-- [ ] **Factura C**: sumar CbteTipo 11 (la lógica de IVA extraído ya existe en
-      `calcularImportesLinea`). Pendiente de confirmar con el titular si la
-      necesita (hoy el emisor es RI, así que `Cliente.tipoFacturaCorrespondiente()`
-      nunca deriva C).
-- [ ] Confirmar con el suegro el supuesto de `precioUnitario` en la ficha
-      según tipo de cliente (neto para RI, con IVA incluido para el resto) —
-      ver "Ventas (Ficha)".
+- [ ] **Factura C**: sumar CbteTipo 11. Pendiente de confirmar con el titular
+      si la necesita (hoy el emisor es RI, así que
+      `Cliente.tipoFacturaCorrespondiente()` nunca deriva C).
 - [ ] Datos legales del emisor en el `.env` (domicilio, IIBB, inicio de
       actividades) — los carga Mateo.
 - [ ] Antes de producción: `.gitignore` tapando `certs/` y `.env`, egress
@@ -475,9 +485,6 @@ Pendiente:
 - ¿Aclarar el tema Factura C? (aparecía en pantallas siendo él RI).
 - ¿Cómo imputa los pagos parciales del fiado: contra ventas o saldo global?
 - Datos legales reales (domicilio, IIBB, inicio de actividades).
-- Confirmar que al cargar una línea en la ficha para un cliente RI (Factura A,
-  ej. la cooperativa) el precio que se anota es el NETO, no el de venta con
-  IVA incluido — ver el supuesto documentado arriba.
 
 ---
 

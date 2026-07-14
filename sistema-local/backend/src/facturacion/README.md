@@ -28,8 +28,12 @@ facturacion/
 ├── providers/arca-sdk.provider.ts        ADAPTER con @arcasdk/core (intercambiable,
 │                                          traductor puro: no calcula IVA ni totales)
 ├── pdf/comprobante-pdf.provider.ts        ADAPTER con pdfmake + qrcode: arma el
-│   pdf/pdfmake.d.ts                       PDF con el QR oficial (RG 4892),
-│                                          tampoco calcula nada de negocio
+│   pdf/formato-arca.ts                    PDF con el QR oficial (RG 4892),
+│   pdf/pdfmake.d.ts                       tampoco calcula nada de negocio.
+│                                          formato-arca.ts tiene los bloques de
+│                                          layout (encabezado, receptor, tabla
+│                                          de ítems, totales) que también reusa
+│                                          ventas/pdf/presupuesto-pdf.provider.ts
 └── config/emisor.ts                      Datos fiscales por comercio (multi-tenant)
 ```
 
@@ -114,19 +118,16 @@ la ferretería.
 | 5 | Consumidor Final |
 | 6 | Monotributo |
 
-## Qué representa `precioUnitario` según el tipo
+## Qué representa `precioUnitario`
 
-Confirmado contra el facturador de ARCA: en **Factura A el precio es NETO**
-(se suma el IVA); en **Factura B (y C) el precio ya viene CON IVA incluido**
-(se extrae el neto). `Comprobante.calcularImportesLinea(tipoFactura, ...)` es
-el que rama según el tipo; lo usan `calcularDesglose` (agrupa por alícuota,
-redondea una sola vez por grupo — no línea a línea, para cuadrar con ARCA) y
-`armarDetalle` (snapshot para el PDF). Test offline en
-`scripts/probar-calculo-iva.ts` (`npm run probar:calculo`).
-
-**Pendiente para el front:** la pantalla de carga tiene que dejar explícito
-qué precio pide según el tipo elegido (en B/C el final con IVA, en A el
-neto) — es la misma confusión en la que cayó el cálculo del backend.
+Confirmado con el titular: `precioUnitario` es siempre **NETO (sin IVA)**,
+tanto en Factura A como en Factura B (y C) — así es como se carga en la
+ficha en la práctica. Se SUMA el IVA en los dos casos.
+`Comprobante.calcularImportesLinea(...)` ya no rama por tipo de comprobante;
+lo usan `calcularDesglose` (agrupa por alícuota, redondea una sola vez por
+grupo — no línea a línea, para cuadrar con ARCA) y `armarDetalle` (snapshot
+para el PDF). Test offline en `scripts/probar-calculo-iva.ts`
+(`npm run probar:calculo`).
 
 ## PDF del comprobante
 
@@ -135,6 +136,31 @@ embebido) como `application/pdf`, nombre tipo `comprobante-B-0002-00000005.pdf`.
 Si el `.env` no tiene `EMISOR_DOMICILIO_COMERCIAL`/`EMISOR_INGRESOS_BRUTOS`/
 `EMISOR_INICIO_ACTIVIDADES`, esos campos salen en blanco (`-`) en el PDF: hay
 que completarlos para que el comprobante impreso sea válido de verdad.
+
+El layout sigue el molde oficial de ARCA (encabezado con la letra en un
+recuadro, franja del receptor, tabla de ítems de 9 columnas — Código,
+Producto/Servicio, Cantidad, U. medida, Precio Unit., % Bonif, Subtotal,
+Alícuota IVA, Subtotal c/IVA — y bloque de totales). En Factura A el precio
+unitario y el subtotal van en NETO y el IVA se discrimina por alícuota en el
+bloque de totales (con las alícuotas no usadas en 0,00, igual que el
+formulario oficial); en Factura B van con el IVA incluido y el bloque de
+totales muestra un único importe total (el dato guardado sigue siendo
+siempre NETO, ver más abajo — es solo una decisión de qué mostrar impreso).
+El presupuesto (`ventas/pdf/presupuesto-pdf.provider.ts`) reusa el mismo
+molde vía `pdf/formato-arca.ts`, sin QR, sin CAE y sin "Comprobante
+Autorizado". No hay campo de "código de producto" en el dominio todavía
+(ver "Sistema A — Depósito" en el `CLAUDE.md` de la raíz), así que esa
+columna se imprime en blanco (`-`); tampoco hay bonificaciones, así que
+"% Bonif" siempre sale en 0,00%.
+
+### Logo del emisor (opcional)
+
+Si `EMISOR_LOGO_PATH` apunta a un `.png` o `.jpg` válido, se usa como
+encabezado en vez del texto de la razón social (en la factura y en el
+presupuesto). Si la variable no está seteada, el archivo no existe o la
+extensión no es soportada, el PDF cae al texto de la razón social sin
+romper la generación (solo un `console.warn`). Ver `EMISOR_LOGO_PATH` en
+`.env.example`.
 
 ## Lo que falta para producción (TODOs conscientes)
 
