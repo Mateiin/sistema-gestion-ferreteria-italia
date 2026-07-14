@@ -1,0 +1,106 @@
+@if (error()) {
+  <p class="banner banner-error">{{ error() }}</p>
+}
+
+@if (cargando()) {
+  <p><span class="spinner"></span> Cargando…</p>
+} @else if (datos(); as d) {
+  <div class="cabecera-lista">
+    <h1>Caja del {{ d.cierre.fecha | date: 'dd/MM/yyyy' }}</h1>
+    <a class="btn" routerLink="/caja/registros">← Volver a Registros</a>
+  </div>
+
+  <div class="tarjeta">
+    <div class="pie-caja">
+      <div class="fila-formulario">
+        <span class="texto-tenue">Efectivo: $ {{ d.cierre.montoEfectivo | number: '1.2-2' }}</span>
+        <span class="texto-tenue">Transferencia: $ {{ d.cierre.montoTransferencia | number: '1.2-2' }}</span>
+        <span class="texto-tenue">Tarjeta: $ {{ d.cierre.montoTarjeta | number: '1.2-2' }}</span>
+        <span class="texto-tenue">Otro: $ {{ d.cierre.montoOtro | number: '1.2-2' }}</span>
+      </div>
+      <p class="total-ficha">Total: $ {{ d.cierre.montoTotal | number: '1.2-2' }}</p>
+    </div>
+
+    @if (!mostrarFormulario()) {
+      <button type="button" class="btn btn-primario" (click)="mostrarFormulario.set(true)">
+        Agregar movimiento
+      </button>
+    } @else {
+      <form [formGroup]="movimientoForm" (ngSubmit)="agregarMovimiento()">
+        @if (errorAlta()) {
+          <p class="banner banner-error">{{ errorAlta() }}</p>
+        }
+        <div class="fila-formulario">
+          <div class="campo">
+            <label for="monto">Monto</label>
+            <input id="monto" type="number" step="0.01" min="0.01" formControlName="monto" />
+            @if (movimientoForm.controls.monto.invalid && movimientoForm.controls.monto.touched) {
+              <span class="campo-error">Ingresá un monto mayor a 0.</span>
+            }
+          </div>
+          <div class="campo">
+            <label for="descripcion">Descripción (opcional)</label>
+            <input id="descripcion" type="text" formControlName="descripcion" placeholder="Ej: nombre del cliente" />
+          </div>
+          <div class="campo">
+            <label for="medioPago">Medio de pago</label>
+            <select id="medioPago" formControlName="medioPago">
+              @for (opcion of medioPagoOpciones; track opcion.valor) {
+                <option [ngValue]="opcion.valor">{{ opcion.etiqueta }}</option>
+              }
+            </select>
+          </div>
+        </div>
+        <div class="acciones-formulario">
+          <button type="submit" class="btn btn-primario" [disabled]="agregando()">
+            @if (agregando()) { <span class="spinner"></span> }
+            Confirmar
+          </button>
+          <button type="button" class="btn" (click)="mostrarFormulario.set(false)" [disabled]="agregando()">
+            Cancelar
+          </button>
+        </div>
+      </form>
+    }
+  </div>
+
+  <div class="tarjeta">
+    <h2>Movimientos</h2>
+    @if (d.movimientos.length === 0) {
+      <p class="texto-tenue">Este cierre no tiene movimientos.</p>
+    } @else {
+      <table>
+        <thead>
+          <tr>
+            <th>Hora</th>
+            <th>Descripción</th>
+            <th>Medio de pago</th>
+            <th>Monto</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (mov of d.movimientos; track mov.id) {
+            <tr>
+              <td>{{ mov.createdAt | date: 'HH:mm' }}</td>
+              <td>{{ mov.descripcion || '—' }}</td>
+              <td>{{ mov.medioPago }}</td>
+              <td>$ {{ mov.monto | number: '1.2-2' }}</td>
+              <td>
+                <button
+                  type="button"
+                  class="btn btn-chico btn-peligro"
+                  (click)="borrar(mov.id)"
+                  [disabled]="borrandoId() === mov.id"
+                >
+                  @if (borrandoId() === mov.id) { <span class="spinner"></span> }
+                  Borrar
+                </button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+  </div>
+}

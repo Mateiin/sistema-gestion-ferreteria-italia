@@ -4,11 +4,13 @@ Este archivo le da contexto a Claude para trabajar en este proyecto. Leelo al
 inicio de cada sesión. Manténganlo actualizado: un CLAUDE.md viejo manda a
 construir sobre supuestos que ya no valen.
 
-> Última actualización: rediseño del PDF de factura/NC y presupuesto para
-> seguir el molde oficial de ARCA (encabezado, franja del receptor, tabla de
-> ítems de 9 columnas, totales con IVA discriminado en A). Logo del emisor
-> opcional vía `EMISOR_LOGO_PATH`. Ver "Facturación (ARCA)" → "PDF: molde
-> oficial de ARCA". Próximo: sistema del depósito.
+> Última actualización: cierre de caja (arqueo) — botón "Cerrar caja" en la
+> pantalla de Caja, pantalla "Registros" con el historial de cierres (fecha +
+> total + desglose por medio de pago) y edición de un cierre ya cerrado
+> (agregar/sacar un movimiento, recalcula y persiste los totales del cierre).
+> Ver "Caja" → "Cierre de caja (arqueo)". Antes: rediseño del PDF de
+> factura/NC y presupuesto al molde oficial de ARCA. Próximo: sistema del
+> depósito.
 
 ---
 
@@ -36,14 +38,16 @@ Corren en dos computadoras distintas y **por ahora no se comunican entre sí**.
 - Listado alfabético + buscador. Todavía no arrancado.
 
 ### Sistema B — Local (`sistema-local/`)
-1. **Caja**: montos que entran y salen, solo importes. Todavía no arrancado.
+1. **Caja**: registro diario de ventas (monto + medio de pago) con cierre/
+   arqueo por día. **Backend y frontend implementados.** Ver sección "Caja".
 2. **Ventas / Ficha + Cuentas corrientes (fiado)**: **COMPLETA** (Fase 1 + Fase
    2) — clientes, ficha con líneas, presupuesto, facturar la ficha y cuenta
    corriente real. Ver sección "Ventas (Ficha)".
 3. **Facturación electrónica (ARCA)**: **COMPLETA y probada en homologación.**
 4. **Frontend (Angular)**: Fase 1 **implementada** — circuito núcleo (clientes,
-   ficha, facturar, cuenta corriente). Caja y depósito quedan afuera hasta que
-   existan esos módulos de backend. Ver sección "Frontend".
+   ficha, facturar, cuenta corriente) más Caja (carga, cierre, registros).
+   Depósito queda afuera hasta que exista ese módulo de backend. Ver sección
+   "Frontend".
 
 > **Regla de consistencia:** el **código de producto** debe ser consistente entre
 > ambos sistemas desde el arranque, para el día que haya que cruzar stock.
@@ -200,6 +204,61 @@ homologación (mezclar da "computador no autorizado").
   nullable en `comprobantes`) y `AddCuentaCorriente` (tabla
   `movimientos_cta_cte` + índice por `clienteId`, sin FK a `clientes` — mismo
   criterio que `comprobanteId`, referencia sin constraint).
+- Migraciones de Caja: `AddCajaSimple` (tabla `movimientos_caja`) y
+  `AddCierresCaja` (tabla `cierres_caja` + columna `cierreId` nullable en
+  `movimientos_caja`, mismo criterio sin FK real).
+
+---
+
+## Caja — `sistema-local/backend/src/caja/` — COMPLETA (carga + cierre)
+
+Registro diario de ventas cargado a mano por el titular (solo monto,
+descripción opcional y medio de pago), con un cierre/arqueo simple por
+encima. MMSC + GRASP, misma forma que el resto: `modelo/` (`MovimientoCaja`,
+`CierreCaja`), `gestor/` (`CajaGestor`), `controlador/` (`CajaController`),
+`dto/`, `modulo/caja.module.ts`.
+
+- `MovimientoCaja` (Information Expert): `fecha` (día local, no UTC — ver el
+  comentario de `fechaHoy()` en la entidad, importa que las cargas después de
+  las 21hs no se vayan al día siguiente), `monto`, `descripcion?`,
+  `medioPago` (`EFECTIVO`/`TRANSFERENCIA`/`TARJETA`/`OTRO`), `cierreId`
+  (nullable). `calcularTotal`/`calcularPorMedioPago` son estáticos, el Gestor
+  no suma nada él mismo.
+- `POST /caja/movimientos`, `GET /caja/dia` (default hoy, **solo movimientos
+  sin cerrar** — ver más abajo), `DELETE /caja/movimientos/:id`,
+  `GET /caja/resumen?desde=&hasta=` (total por día en un rango; el frontend
+  todavía no lo consume).
+
+### Cierre de caja (arqueo)
+- `CierreCaja`: snapshot por día (`fecha` **única** — un cierre por día como
+  mucho) de `montoTotal` + el desglose por medio de pago
+  (`montoEfectivo`/`montoTransferencia`/`montoTarjeta`/`montoOtro`).
+  Information Expert de sus propios totales a partir de los `MovimientoCaja`
+  que se le pasan (`aplicarTotales`, reusa `MovimientoCaja.calcularTotal`/
+  `calcularPorMedioPago`, no reimplementa la suma).
+- `POST /caja/cierres { fecha? }` — cierra la caja (default hoy):
+  `CajaGestor.cerrarDia` arma el `CierreCaja` a partir de los movimientos
+  todavía sin cerrar de esa fecha y, en una transacción, les setea
+  `cierreId` al cierre recién creado. 409 (`ConflictException`) si esa fecha
+  ya tiene cierre.
+- **Cómo "se vacía" la caja al cerrar:** `GET /caja/dia` filtra
+  `cierreId IS NULL` — no hay ningún reseteo especial, el cierre simplemente
+  archiva los movimientos del día bajo su id y dejan de aparecer en la caja
+  del día en curso. Movimientos de días previos a esta feature (sin
+  `cierreId`) siguen viéndose igual que antes.
+- `GET /caja/cierres` — listado (pantalla "Registros"), ordenado por fecha
+  descendente. `GET /caja/cierres/:id` — detalle con sus movimientos
+  (pantalla de edición).
+- **Editar un cierre ya cerrado** (agregar o sacar un pago/retiro olvidado):
+  reusa los mismos endpoints de siempre en vez de duplicar rutas.
+  `RegistrarMovimientoCajaDto` acepta un `cierreId` opcional — si viene, el
+  movimiento se ata a ese cierre (no a la caja del día en curso) y su
+  `fecha` pasa a ser la del cierre, no la de hoy; después de guardar,
+  `CajaGestor` recalcula y persiste los totales del cierre
+  (`recalcularCierre`, misma lógica en alta y en baja).
+  `DELETE /caja/movimientos/:id` funciona igual para un movimiento de un
+  cierre cerrado: borra y recalcula. No hay endpoint para borrar un
+  `CierreCaja` (es un registro de arqueo, no se descarta por API).
 
 ---
 
@@ -333,26 +392,27 @@ pantalla de carga.
 
 ---
 
-## Frontend — `sistema-local/frontend/` — Fase 1 implementada
+## Frontend — `sistema-local/frontend/` — Fase 1 implementada + Caja
 
 Angular 22, standalone (sin NgModules, sin zoneless todavía), componentes con
 `signal` + Reactive Forms. Fase 1 = el circuito núcleo (clientes, ficha,
-facturar, cuenta corriente). **Nada de caja ni depósito** — esos módulos de
-backend no existen todavía.
+facturar, cuenta corriente), más el módulo de Caja (carga, cierre,
+registros). **Nada de depósito** — ese módulo de backend no existe todavía.
 
 ### Estructura
 - `core/models/` — interfaces TS espejo de las entidades del backend
-  (`Cliente`, `Venta`/`LineaVenta`, `Comprobante`, `MovimientoCtaCte`). Ojo:
-  los `numeric`/`bigint` de Postgres llegan como **string** en el JSON (TypeORM
-  no los convierte solo), así que esos campos están tipados `number | string`
-  a propósito — no asumir que son número.
-- `core/services/` — `ClientesService`, `VentasService`, `FacturacionService`:
-  wrappers finos de `HttpClient`, un método por endpoint, rutas relativas
-  (`/clientes`, `/ventas/...`).
+  (`Cliente`, `Venta`/`LineaVenta`, `Comprobante`, `MovimientoCtaCte`,
+  `MovimientoCaja`/`CierreCaja`). Ojo: los `numeric`/`bigint` de Postgres
+  llegan como **string** en el JSON (TypeORM no los convierte solo), así que
+  esos campos están tipados `number | string` a propósito — no asumir que
+  son número.
+- `core/services/` — `ClientesService`, `VentasService`, `FacturacionService`,
+  `CajaService`: wrappers finos de `HttpClient`, un método por endpoint,
+  rutas relativas (`/clientes`, `/ventas/...`, `/caja/...`).
 - `core/interceptors/api-url.interceptor.ts` — el único lugar que conoce
   `environment.apiBaseUrl`: antepone la base a cualquier request que empiece
   con `/`. Cambiar de ambiente es cambiar solo `environment.ts`.
-- `layout/shell/` — nav a Ventas / Clientes / Cuentas por cobrar.
+- `layout/shell/` — nav a Ventas / Clientes / Cuentas por cobrar / Caja.
 - `features/clientes/` — `clientes-lista` (buscador con debounce) y
   `cliente-formulario` (alta y edición, mismo componente, reactive form).
 - `features/ventas/ventas-ficha/` — **la pantalla principal**. Dos estados: sin
@@ -369,6 +429,19 @@ backend no existen todavía.
 - `features/ventas/fichas-abiertas/` — `GET /ventas/abiertas`.
 - `features/cuentas/` — `cuentas-lista` (`GET /clientes/con-saldo`) y
   `cuenta-detalle` (`GET /clientes/:id/cuenta` + registrar pago).
+- `features/caja/caja/` — pantalla principal: alta de movimientos + tabla del
+  día (solo movimientos sin cerrar, ver "Caja" → "Cierre de caja"), selector
+  de fecha para ver días anteriores, y botones "Registros" (a
+  `/caja/registros`) y "Cerrar caja" (modal de confirmación con los totales
+  del día antes de confirmar — mismo patrón de modal que "Facturar" en
+  `ventas-ficha`).
+- `features/caja/registros-caja/` — `GET /caja/cierres`: tabla con fecha,
+  total y desglose por medio de pago de cada cierre, botón "Editar" por fila.
+- `features/caja/cierre-detalle/` — edición de un cierre ya cerrado
+  (`/caja/registros/:id`): agregar un movimiento olvidado (mismo form que la
+  pantalla principal, pero se manda con `cierreId`) o borrar uno existente;
+  los totales que se muestran vienen recalculados del backend, no se
+  calculan en el front.
 - `shared/utils/errores.ts` — `extraerMensajeError` lee `err.error.message`
   (string o array de class-validator) para mostrar el error real del backend,
   no uno genérico. Hay una variante `extraerMensajeErrorAsync` para las
@@ -469,9 +542,18 @@ Hecho:
       cuentas por cobrar (saldo, movimientos, registrar pago). Probado de
       punta a punta con Playwright contra ARCA homologación real, sin errores
       de consola. Detalle completo en "Frontend".
-
-Pendiente:
-- [ ] **Módulo de caja** (montos in/out + arqueo) — ni backend ni frontend.
+- [x] **Módulo de caja** (`sistema-local/backend/src/caja/` +
+      `sistema-local/frontend/src/app/features/caja/`): carga diaria de
+      movimientos (monto + medio de pago) y cierre/arqueo por día
+      (`CierreCaja`, un cierre por día, 409 si ya existe). Al cerrar, la caja
+      del día se archiva bajo el cierre y la pantalla principal queda vacía
+      para lo que sigue (`GET /caja/dia` filtra `cierreId IS NULL`).
+      "Registros" lista los cierres (fecha + total + desglose por medio de
+      pago); "Editar" en un cierre permite agregar o sacar un movimiento
+      olvidado, recalculando y persistiendo los totales. Probado de punta a
+      punta (curl): alta → cierre → doble cierre rechazado (409) → editar
+      (alta y baja sobre el cierre) → totales recalculados correctos.
+      Detalle completo en "Caja".
 - [ ] **Sistema del depósito** (ABM de productos) — ni backend ni frontend.
 - [ ] **Factura C**: sumar CbteTipo 11. Pendiente de confirmar con el titular
       si la necesita (hoy el emisor es RI, así que

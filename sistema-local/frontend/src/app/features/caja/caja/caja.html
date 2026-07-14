@@ -1,13 +1,17 @@
 <div class="cabecera-lista">
   <h1>Caja</h1>
-  <div class="campo" style="margin-bottom: 0">
-    <label for="fecha">Fecha</label>
-    <input
-      id="fecha"
-      type="date"
-      [value]="fechaSeleccionada()"
-      (change)="cambiarFecha($any($event.target).value)"
-    />
+  <div class="acciones-formulario">
+    <div class="campo" style="margin-bottom: 0">
+      <label for="fecha">Fecha</label>
+      <input
+        id="fecha"
+        type="date"
+        [value]="fechaSeleccionada()"
+        (change)="cambiarFecha($any($event.target).value)"
+      />
+    </div>
+    <a class="btn" routerLink="/caja/registros">Registros</a>
+    <button type="button" class="btn btn-primario" (click)="abrirModalCerrar()">Cerrar caja</button>
   </div>
 </div>
 
@@ -111,5 +115,43 @@
         </tbody>
       </table>
     }
+  </div>
+}
+
+@if (modalCerrarAbierto()) {
+  <div class="modal-fondo" (click)="cerrarModalCerrar()">
+    <div class="modal" (click)="$event.stopPropagation()">
+      <h2>Cerrar caja</h2>
+
+      @if (errorCierre()) {
+        <p class="banner banner-error">{{ errorCierre() }}</p>
+      }
+
+      @if (dia(); as d) {
+        <p>Se va a cerrar la caja del {{ fechaSeleccionada() | date: 'dd/MM/yyyy' }} con:</p>
+        <div class="pie-caja">
+          <div class="fila-formulario">
+            @for (opcion of medioPagoOpciones; track opcion.valor) {
+              <span class="texto-tenue">
+                {{ opcion.etiqueta }}: $ {{ d.porMedioPago[opcion.valor] | number: '1.2-2' }}
+              </span>
+            }
+          </div>
+        </div>
+        <p class="total-ficha">Total: $ {{ d.total | number: '1.2-2' }}</p>
+      }
+
+      <p class="texto-tenue">
+        Los movimientos de este día pasan a "Registros" y la caja queda vacía para lo que sigue.
+      </p>
+
+      <div class="acciones-formulario">
+        <button type="button" class="btn btn-primario" (click)="confirmarCierre()" [disabled]="cerrando()">
+          @if (cerrando()) { <span class="spinner"></span> }
+          Confirmar cierre
+        </button>
+        <button type="button" class="btn" (click)="cerrarModalCerrar()" [disabled]="cerrando()">Cancelar</button>
+      </div>
+    </div>
   </div>
 }

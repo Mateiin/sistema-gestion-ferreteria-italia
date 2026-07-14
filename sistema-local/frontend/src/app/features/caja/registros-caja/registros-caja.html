@@ -1,0 +1,43 @@
+<div class="cabecera-lista">
+  <h1>Registros de caja</h1>
+  <a class="btn" routerLink="/caja">← Volver a Caja</a>
+</div>
+
+@if (error()) {
+  <p class="banner banner-error">{{ error() }}</p>
+}
+
+@if (cargando()) {
+  <p><span class="spinner"></span> Cargando…</p>
+} @else if (cierres().length === 0) {
+  <p class="texto-tenue">Todavía no se cerró ninguna caja.</p>
+} @else {
+  <div class="tarjeta">
+    <table>
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>Total</th>
+          <th>Efectivo</th>
+          <th>Transferencia</th>
+          <th>Tarjeta</th>
+          <th>Otro</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (cierre of cierres(); track cierre.id) {
+          <tr>
+            <td>{{ cierre.fecha | date: 'dd/MM/yyyy' }}</td>
+            <td>$ {{ cierre.montoTotal | number: '1.2-2' }}</td>
+            <td>$ {{ cierre.montoEfectivo | number: '1.2-2' }}</td>
+            <td>$ {{ cierre.montoTransferencia | number: '1.2-2' }}</td>
+            <td>$ {{ cierre.montoTarjeta | number: '1.2-2' }}</td>
+            <td>$ {{ cierre.montoOtro | number: '1.2-2' }}</td>
+            <td><button type="button" class="btn btn-chico" (click)="editar(cierre)">Editar</button></td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+}

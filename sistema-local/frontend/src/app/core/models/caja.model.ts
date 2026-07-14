@@ -34,4 +34,22 @@ export interface NuevoMovimientoCaja {
   monto: number;
   descripcion?: string;
   medioPago?: MedioPago;
+  /** Solo al agregar un movimiento a un cierre ya cerrado (edición desde Registros). */
+  cierreId?: string;
+}
+
+export interface CierreCaja {
+  id: string;
+  fecha: string;
+  montoTotal: number | string;
+  montoEfectivo: number | string;
+  montoTransferencia: number | string;
+  montoTarjeta: number | string;
+  montoOtro: number | string;
+  createdAt: string;
+}
+
+export interface CierreConMovimientos {
+  cierre: CierreCaja;
+  movimientos: MovimientoCaja[];
 }

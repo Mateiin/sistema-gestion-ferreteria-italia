@@ -53,7 +53,23 @@ export const routes: Routes = [
   },
   {
     path: 'caja',
-    loadComponent: () => import('./features/caja/caja/caja').then((m) => m.Caja),
+    children: [
+      {
+        path: '',
+        loadComponent: () => import('./features/caja/caja/caja').then((m) => m.Caja),
+      },
+      // 'registros' antes de 'registros/:id': mismo criterio que 'ventas/abiertas'.
+      {
+        path: 'registros',
+        loadComponent: () =>
+          import('./features/caja/registros-caja/registros-caja').then((m) => m.RegistrosCaja),
+      },
+      {
+        path: 'registros/:id',
+        loadComponent: () =>
+          import('./features/caja/cierre-detalle/cierre-detalle').then((m) => m.CierreDetalle),
+      },
+    ],
   },
   {
     path: 'cuentas-por-cobrar',

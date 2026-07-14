@@ -1,6 +1,7 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { Component, ElementRef, ViewChild, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { DiaCaja, MEDIO_PAGO_OPCIONES, MedioPago } from '../../../core/models/caja.model';
 import { CajaService } from '../../../core/services/caja.service';
 import { extraerMensajeError } from '../../../shared/utils/errores';
@@ -14,7 +15,7 @@ function fechaHoyLocal(): string {
 
 @Component({
   selector: 'app-caja',
-  imports: [ReactiveFormsModule, DecimalPipe, DatePipe],
+  imports: [ReactiveFormsModule, DecimalPipe, DatePipe, RouterLink],
   templateUrl: './caja.html',
 })
 export class Caja {
@@ -41,6 +42,10 @@ export class Caja {
   });
 
   protected readonly borrandoId = signal<string | null>(null);
+
+  protected readonly modalCerrarAbierto = signal(false);
+  protected readonly cerrando = signal(false);
+  protected readonly errorCierre = signal<string | null>(null);
 
   constructor() {
     this.cargar();
@@ -122,6 +127,32 @@ export class Caja {
       error: (err) => {
         this.error.set(extraerMensajeError(err));
         this.borrandoId.set(null);
+      },
+    });
+  }
+
+  protected abrirModalCerrar(): void {
+    this.errorCierre.set(null);
+    this.modalCerrarAbierto.set(true);
+  }
+
+  protected cerrarModalCerrar(): void {
+    this.modalCerrarAbierto.set(false);
+  }
+
+  protected confirmarCierre(): void {
+    this.cerrando.set(true);
+    this.errorCierre.set(null);
+    this.cajaService.cerrar(this.fechaSeleccionada()).subscribe({
+      next: () => {
+        this.cerrando.set(false);
+        this.modalCerrarAbierto.set(false);
+        // La caja del día queda archivada bajo el cierre: la vista se "vacía".
+        this.cargar(false);
+      },
+      error: (err) => {
+        this.errorCierre.set(extraerMensajeError(err));
+        this.cerrando.set(false);
       },
     });
   }

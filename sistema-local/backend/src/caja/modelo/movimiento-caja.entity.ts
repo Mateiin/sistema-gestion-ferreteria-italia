@@ -22,8 +22,9 @@ function fechaHoy(): string {
 
 /**
  * MODELO. Registro diario de ventas cargado a mano por el titular: solo
- * monto, quién/qué y medio de pago. Sin sesiones ni apertura/cierre de caja,
- * ni monto inicial — es una lista, no un arqueo.
+ * monto, quién/qué y medio de pago. El cierre de caja (ver `CierreCaja`) es
+ * un arqueo simple por encima de esta lista, no cambia cómo se carga cada
+ * movimiento.
  */
 @Entity('movimientos_caja')
 @Index(['fecha'])
@@ -43,15 +44,30 @@ export class MovimientoCaja {
   @Column({ type: 'varchar', default: MedioPago.EFECTIVO })
   medioPago: MedioPago;
 
+  /** Null = todavía no forma parte de ningún cierre (caja del día en curso).
+   * Al cerrar la caja, `CajaGestor.cerrarDia` lo apunta al `CierreCaja`
+   * creado — así es como la pantalla de Caja "se vacía" para el día
+   * siguiente sin borrar nada. Sin FK real, mismo criterio que el resto del
+   * proyecto (ver `comprobanteId`/`clienteId` en `movimientos_cta_cte`). */
+  @Column({ type: 'uuid', nullable: true })
+  @Index()
+  cierreId: string | null;
+
   @CreateDateColumn()
   createdAt: Date;
 
-  static crear(monto: number, descripcion?: string, medioPago?: MedioPago): MovimientoCaja {
+  static crear(
+    monto: number,
+    descripcion?: string,
+    medioPago?: MedioPago,
+    fecha?: string,
+  ): MovimientoCaja {
     const mov = new MovimientoCaja();
-    mov.fecha = fechaHoy();
+    mov.fecha = fecha ?? fechaHoy();
     mov.monto = monto;
     mov.descripcion = descripcion;
     mov.medioPago = medioPago ?? MedioPago.EFECTIVO;
+    mov.cierreId = null;
     return mov;
   }
 
