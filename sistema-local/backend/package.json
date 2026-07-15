@@ -11,6 +11,7 @@
     "probar:fe": "tsx scripts/probar-facturacion.ts",
     "probar:calculo": "tsx scripts/probar-calculo-iva.ts",
     "probar:pdf": "tsx scripts/probar-pdf.ts",
+    "backup": "tsx scripts/backup.ts",
     "migration:create": "tsx ./node_modules/typeorm/cli.js migration:create",
     "migration:generate": "tsx ./node_modules/typeorm/cli.js migration:generate -d src/data-source.ts",
     "migration:run": "tsx ./node_modules/typeorm/cli.js migration:run -d src/data-source.ts",

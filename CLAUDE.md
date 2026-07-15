@@ -4,13 +4,12 @@ Este archivo le da contexto a Claude para trabajar en este proyecto. Leelo al
 inicio de cada sesión. Manténganlo actualizado: un CLAUDE.md viejo manda a
 construir sobre supuestos que ya no valen.
 
-> Última actualización: cierre de caja (arqueo) — botón "Cerrar caja" en la
-> pantalla de Caja, pantalla "Registros" con el historial de cierres (fecha +
-> total + desglose por medio de pago) y edición de un cierre ya cerrado
-> (agregar/sacar un movimiento, recalcula y persiste los totales del cierre).
-> Ver "Caja" → "Cierre de caja (arqueo)". Antes: rediseño del PDF de
-> factura/NC y presupuesto al molde oficial de ARCA. Próximo: sistema del
-> depósito.
+> Última actualización: script de backup standalone
+> (`sistema-local/backend/scripts/backup.ts`) — dump + 4 CSV con fecha en el
+> nombre, a BACKUP_DIR_LOCAL/PENDRIVE/DRIVE (opcionales tolerantes a fallo),
+> retención de 30 días y verificación del dump. Ver "Estrategia de backup".
+> Antes: cierre de caja (arqueo) con "Registros" y retiro de caja. Próximo:
+> sistema del depósito.
 
 ---
 
@@ -482,18 +481,53 @@ muestra CARGO y PAGO. Cero errores de consola en todo el recorrido.
 
 ---
 
-## Estrategia de backup (CRÍTICO)
+## Estrategia de backup (CRÍTICO) — `sistema-local/backend/scripts/backup.ts`
 
-Dato irremplazable: **saldos de cuentas corrientes (fiado)**. Stock y precios el
-suegro los tiene de memoria.
+Dato irremplazable: **saldos de cuentas corrientes (fiado)** y las **fichas
+ABIERTAS** (lo que el titular necesita para poder facturar el mes a mano si
+se pierde el sistema). Stock y precios el suegro los tiene de memoria.
 
-Cada noche, a **pendrive + Google Drive**, con **fecha en el nombre** (nunca
-sobrescribir; retener ~30 días):
-- `dump_AAAA-MM-DD.sql` — `pg_dump` completo.
-- `saldos_AAAA-MM-DD.csv` — nombre, teléfono y saldo de cada deudor, **legible sin
-  el sistema**.
+**Implementado y standalone**: no depende de que el backend esté corriendo
+(conexión propia a Postgres vía `pg`, sin pasar por los Gestores de la app —
+tiene que poder correr aunque la app esté caída) ni de un docker-compose (no
+existe todavía en este proyecto). Se corre a mano por ahora
+(`npm run backup` desde `sistema-local/backend/`); la programación horaria
+(cron / tarea programada / contenedor en un futuro Compose) queda pendiente
+para el despliegue en la PC del local. Detalle completo, variables de
+entorno y **procedimiento de restore** en
+`sistema-local/backend/scripts/README-backup.md`.
 
-Como contenedor/cron en el Compose.
+Genera, con **fecha en el nombre** (nunca sobrescribe):
+- `dump_AAAA-MM-DD.sql` — `pg_dump` completo (formato plano, restaura TODO).
+  Se verifica exit code + tamaño > 0 + el marcador de finalización que
+  escribe `pg_dump` al terminar bien (no solo "no tiró error" — un dump
+  truncado a mitad de camino también hay que detectarlo).
+- `saldos_AAAA-MM-DD.csv` — clientes con saldo > 0: razón social, teléfono, saldo.
+- `fichas_abiertas_AAAA-MM-DD.csv` — una fila por línea de cada ficha
+  ABIERTA (cliente repetido para que sea legible plano), con el total de la
+  ficha.
+- `clientes_AAAA-MM-DD.csv` — razón social, doc tipo/nro, condición IVA,
+  domicilio, teléfono, email.
+- `caja_AAAA-MM-DD.csv` — movimientos de caja del día sin cerrar + el
+  historial de cierres.
+
+Montos en punto decimal simple (no es-AR): una coma decimal chocaría con la
+coma que separa columnas del CSV.
+
+**Destinos**: `BACKUP_DIR_LOCAL` (obligatoria, se escribe ahí primero) +
+`BACKUP_DIR_PENDRIVE`/`BACKUP_DIR_DRIVE` (opcionales — Drive es una carpeta
+local común que sincroniza el cliente de escritorio, NO la API de Drive). Un
+destino que falla (pendrive no conectado, etc.) loguea un WARNING y no aborta
+los demás.
+
+**Retención**: 30 días por destino, y solo se borra en un destino donde el
+backup de HOY se haya escrito bien (si hoy falló ahí, no se borra nada — un
+fallo repetido no puede dejar sin ninguna copia). Todo queda registrado en
+`BACKUP_DIR_LOCAL/backup.log`.
+
+> Un backup que nunca se restauró no es un backup: el restore hay que
+> probarlo al menos una vez antes de producción (procedimiento paso a paso en
+> el README de arriba).
 
 ---
 
@@ -554,6 +588,15 @@ Hecho:
       punta (curl): alta → cierre → doble cierre rechazado (409) → editar
       (alta y baja sobre el cierre) → totales recalculados correctos.
       Detalle completo en "Caja".
+- [x] **Backup standalone** (`sistema-local/backend/scripts/backup.ts`,
+      `npm run backup`): dump completo verificado + 4 CSV (saldos, fichas
+      abiertas, clientes, caja) con fecha en el nombre, a
+      BACKUP_DIR_LOCAL/PENDRIVE/DRIVE (los dos últimos opcionales,
+      tolerantes a fallo), retención de 30 días por destino (solo si el
+      backup de hoy salió bien ahí) y log en `backup.log`. Restore
+      documentado en `scripts/README-backup.md`. Programación horaria
+      (cron/tarea programada) pendiente del despliegue. Detalle completo en
+      "Estrategia de backup".
 - [ ] **Sistema del depósito** (ABM de productos) — ni backend ni frontend.
 - [ ] **Factura C**: sumar CbteTipo 11. Pendiente de confirmar con el titular
       si la necesita (hoy el emisor es RI, así que
