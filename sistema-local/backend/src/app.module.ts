@@ -1,13 +1,34 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ServeStaticModule } from '@nestjs/serve-static';
 import { FacturacionModule } from './facturacion/modulo/facturacion.module';
 import { VentasModule } from './ventas/modulo/ventas.module';
 import { CajaModule } from './caja/modulo/caja.module';
 
+// Build de Angular copiado acá por `npm run build:prod` (ver
+// scripts/copiar-frontend.ts) — vive junto a `dist/`, no adentro (`nest
+// build` borra `dist/` en cada compilación, `deleteOutDir` en
+// nest-cli.json). En dev (`npm run start:dev`) esta carpeta no existe: el
+// módulo de estáticos directamente no se registra, así que no hay riesgo de
+// romper el flujo con `ng serve` en 4200 por una carpeta faltante.
+const CARPETA_FRONTEND = join(__dirname, '..', 'public');
+
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ...(existsSync(CARPETA_FRONTEND)
+      ? [
+          ServeStaticModule.forRoot({
+            rootPath: CARPETA_FRONTEND,
+            // No pisar la API con el fallback a index.html (deep links del
+            // router de Angular) — ver main.ts, setGlobalPrefix('api').
+            exclude: ['/api/{*splat}'],
+          }),
+        ]
+      : []),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
