@@ -12,12 +12,19 @@ export const MEDIO_PAGO_OPCIONES: { valor: MedioPago; etiqueta: string }[] = [
   { valor: MedioPago.OTRO, etiqueta: 'Otro' },
 ];
 
+/** VENTA suma al total del día, RETIRO resta (plata que sale de la caja). */
+export enum TipoMovimientoCaja {
+  VENTA = 'VENTA',
+  RETIRO = 'RETIRO',
+}
+
 export interface MovimientoCaja {
   id: string;
   fecha: string;
   monto: number | string;
   descripcion?: string | null;
   medioPago: MedioPago;
+  tipo: TipoMovimientoCaja;
   createdAt: string;
 }
 
@@ -34,6 +41,8 @@ export interface NuevoMovimientoCaja {
   monto: number;
   descripcion?: string;
   medioPago?: MedioPago;
+  /** Default VENTA. RETIRO = plata que sale de la caja. */
+  tipo?: TipoMovimientoCaja;
   /** Solo al agregar un movimiento a un cierre ya cerrado (edición desde Registros). */
   cierreId?: string;
 }

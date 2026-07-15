@@ -11,21 +11,14 @@
   </div>
 
   <div class="tarjeta">
-    <div class="pie-caja">
-      <div class="fila-formulario">
-        <span class="texto-tenue">Efectivo: $ {{ d.cierre.montoEfectivo | number: '1.2-2' }}</span>
-        <span class="texto-tenue">Transferencia: $ {{ d.cierre.montoTransferencia | number: '1.2-2' }}</span>
-        <span class="texto-tenue">Tarjeta: $ {{ d.cierre.montoTarjeta | number: '1.2-2' }}</span>
-        <span class="texto-tenue">Otro: $ {{ d.cierre.montoOtro | number: '1.2-2' }}</span>
+    @if (!mostrarFormulario() && !mostrarFormularioRetiro()) {
+      <div class="acciones-formulario">
+        <button type="button" class="btn btn-primario" (click)="abrirFormulario()">Agregar</button>
+        <button type="button" class="btn btn-peligro" (click)="abrirFormularioRetiro()">Retiro</button>
       </div>
-      <p class="total-ficha">Total: $ {{ d.cierre.montoTotal | number: '1.2-2' }}</p>
-    </div>
+    }
 
-    @if (!mostrarFormulario()) {
-      <button type="button" class="btn btn-primario" (click)="mostrarFormulario.set(true)">
-        Agregar movimiento
-      </button>
-    } @else {
+    @if (mostrarFormulario()) {
       <form [formGroup]="movimientoForm" (ngSubmit)="agregarMovimiento()">
         @if (errorAlta()) {
           <p class="banner banner-error">{{ errorAlta() }}</p>
@@ -62,6 +55,46 @@
         </div>
       </form>
     }
+
+    @if (mostrarFormularioRetiro()) {
+      <form [formGroup]="retiroForm" (ngSubmit)="confirmarRetiro()">
+        @if (errorRetiro()) {
+          <p class="banner banner-error">{{ errorRetiro() }}</p>
+        }
+        <div class="fila-formulario">
+          <div class="campo">
+            <label for="montoRetiro">Monto retirado</label>
+            <input id="montoRetiro" type="number" step="0.01" min="0.01" formControlName="monto" />
+            @if (retiroForm.controls.monto.invalid && retiroForm.controls.monto.touched) {
+              <span class="campo-error">Ingresá un monto mayor a 0.</span>
+            }
+          </div>
+          <div class="campo">
+            <label for="descripcionRetiro">Descripción (opcional)</label>
+            <input id="descripcionRetiro" type="text" formControlName="descripcion" placeholder="Ej: motivo del retiro" />
+          </div>
+        </div>
+        <div class="acciones-formulario">
+          <button type="submit" class="btn btn-primario" [disabled]="retirando()">
+            @if (retirando()) { <span class="spinner"></span> }
+            Confirmar retiro
+          </button>
+          <button type="button" class="btn" (click)="mostrarFormularioRetiro.set(false)" [disabled]="retirando()">
+            Cancelar
+          </button>
+        </div>
+      </form>
+    }
+
+    <div class="pie-caja">
+      <div class="fila-formulario">
+        <span class="texto-tenue">Efectivo: $ {{ d.cierre.montoEfectivo | number: '1.2-2' }}</span>
+        <span class="texto-tenue">Transferencia: $ {{ d.cierre.montoTransferencia | number: '1.2-2' }}</span>
+        <span class="texto-tenue">Tarjeta: $ {{ d.cierre.montoTarjeta | number: '1.2-2' }}</span>
+        <span class="texto-tenue">Otro: $ {{ d.cierre.montoOtro | number: '1.2-2' }}</span>
+      </div>
+      <p class="total-ficha">Total: $ {{ d.cierre.montoTotal | number: '1.2-2' }}</p>
+    </div>
   </div>
 
   <div class="tarjeta">
@@ -73,6 +106,7 @@
         <thead>
           <tr>
             <th>Hora</th>
+            <th>Tipo</th>
             <th>Descripción</th>
             <th>Medio de pago</th>
             <th>Monto</th>
@@ -83,9 +117,14 @@
           @for (mov of d.movimientos; track mov.id) {
             <tr>
               <td>{{ mov.createdAt | date: 'HH:mm' }}</td>
+              <td>
+                <span class="badge" [class.badge-anulada]="mov.tipo === TipoMovimientoCaja.RETIRO">
+                  {{ mov.tipo === TipoMovimientoCaja.RETIRO ? 'Retiro' : 'Venta' }}
+                </span>
+              </td>
               <td>{{ mov.descripcion || '—' }}</td>
               <td>{{ mov.medioPago }}</td>
-              <td>$ {{ mov.monto | number: '1.2-2' }}</td>
+              <td>{{ mov.tipo === TipoMovimientoCaja.RETIRO ? '-' : '' }}$ {{ mov.monto | number: '1.2-2' }}</td>
               <td>
                 <button
                   type="button"

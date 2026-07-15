@@ -2,7 +2,12 @@ import { DatePipe, DecimalPipe } from '@angular/common';
 import { Component, ElementRef, ViewChild, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { DiaCaja, MEDIO_PAGO_OPCIONES, MedioPago } from '../../../core/models/caja.model';
+import {
+  DiaCaja,
+  MEDIO_PAGO_OPCIONES,
+  MedioPago,
+  TipoMovimientoCaja,
+} from '../../../core/models/caja.model';
 import { CajaService } from '../../../core/services/caja.service';
 import { extraerMensajeError } from '../../../shared/utils/errores';
 
@@ -26,6 +31,7 @@ export class Caja {
 
   protected readonly medioPagoOpciones = MEDIO_PAGO_OPCIONES;
   protected readonly MedioPago = MedioPago;
+  protected readonly TipoMovimientoCaja = TipoMovimientoCaja;
 
   protected readonly fechaSeleccionada = signal(fechaHoyLocal());
   protected readonly esHoy = signal(true);
@@ -46,6 +52,14 @@ export class Caja {
   protected readonly modalCerrarAbierto = signal(false);
   protected readonly cerrando = signal(false);
   protected readonly errorCierre = signal<string | null>(null);
+
+  protected readonly modalRetiroAbierto = signal(false);
+  protected readonly retirando = signal(false);
+  protected readonly errorRetiro = signal<string | null>(null);
+  protected readonly retiroForm = this.fb.nonNullable.group({
+    monto: [0, [Validators.required, Validators.min(0.01)]],
+    descripcion: [''],
+  });
 
   constructor() {
     this.cargar();
@@ -155,6 +169,47 @@ export class Caja {
         this.cerrando.set(false);
       },
     });
+  }
+
+  protected abrirModalRetiro(): void {
+    this.errorRetiro.set(null);
+    this.retiroForm.reset({ monto: 0, descripcion: '' });
+    this.modalRetiroAbierto.set(true);
+  }
+
+  protected cerrarModalRetiro(): void {
+    this.modalRetiroAbierto.set(false);
+  }
+
+  protected confirmarRetiro(): void {
+    if (this.retiroForm.invalid) {
+      this.retiroForm.markAllAsTouched();
+      return;
+    }
+    this.retirando.set(true);
+    this.errorRetiro.set(null);
+    const valor = this.retiroForm.getRawValue();
+    this.cajaService
+      .registrar({
+        monto: valor.monto,
+        descripcion: valor.descripcion || undefined,
+        tipo: TipoMovimientoCaja.RETIRO,
+      })
+      .subscribe({
+        next: () => {
+          this.retirando.set(false);
+          this.modalRetiroAbierto.set(false);
+          if (!this.esHoy()) {
+            this.cambiarFecha(fechaHoyLocal());
+          } else {
+            this.cargar(false);
+          }
+        },
+        error: (err) => {
+          this.errorRetiro.set(extraerMensajeError(err));
+          this.retirando.set(false);
+        },
+      });
   }
 
   /**

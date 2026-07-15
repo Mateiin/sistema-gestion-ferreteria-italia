@@ -1,5 +1,5 @@
 import { IsEnum, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
-import { MedioPago } from '../modelo/movimiento-caja.entity';
+import { MedioPago, TipoMovimientoCaja } from '../modelo/movimiento-caja.entity';
 
 export class RegistrarMovimientoCajaDto {
   @IsNumber()
@@ -13,6 +13,11 @@ export class RegistrarMovimientoCajaDto {
   @IsOptional()
   @IsEnum(MedioPago)
   medioPago?: MedioPago;
+
+  /** Default VENTA. RETIRO = plata que sale de la caja (siempre efectivo). */
+  @IsOptional()
+  @IsEnum(TipoMovimientoCaja)
+  tipo?: TipoMovimientoCaja;
 
   /** Presente solo al agregar un movimiento a un día YA cerrado (edición
    * desde Registros): ata el movimiento a ese cierre en vez de a la caja del

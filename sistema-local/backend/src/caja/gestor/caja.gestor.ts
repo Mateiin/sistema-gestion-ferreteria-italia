@@ -49,7 +49,9 @@ export class CajaGestor {
 
   async registrar(dto: RegistrarMovimientoCajaDto): Promise<MovimientoCaja> {
     if (!dto.cierreId) {
-      return this.movimientos.save(MovimientoCaja.crear(dto.monto, dto.descripcion, dto.medioPago));
+      return this.movimientos.save(
+        MovimientoCaja.crear(dto.monto, dto.descripcion, dto.medioPago, undefined, dto.tipo),
+      );
     }
 
     // Alta sobre un día ya cerrado (edición desde Registros): la fecha del
@@ -59,7 +61,7 @@ export class CajaGestor {
     if (!cierre) {
       throw new NotFoundException('Cierre no encontrado');
     }
-    const nuevo = MovimientoCaja.crear(dto.monto, dto.descripcion, dto.medioPago, cierre.fecha);
+    const nuevo = MovimientoCaja.crear(dto.monto, dto.descripcion, dto.medioPago, cierre.fecha, dto.tipo);
     nuevo.cierreId = cierre.id;
 
     return this.dataSource.transaction(async (manager) => {
