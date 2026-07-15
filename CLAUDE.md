@@ -4,12 +4,18 @@ Este archivo le da contexto a Claude para trabajar en este proyecto. Leelo al
 inicio de cada sesión. Manténganlo actualizado: un CLAUDE.md viejo manda a
 construir sobre supuestos que ya no valen.
 
-> Última actualización: script de backup standalone
-> (`sistema-local/backend/scripts/backup.ts`) — dump + 4 CSV con fecha en el
-> nombre, a BACKUP_DIR_LOCAL/PENDRIVE/DRIVE (opcionales tolerantes a fallo),
-> retención de 30 días y verificación del dump. Ver "Estrategia de backup".
-> Antes: cierre de caja (arqueo) con "Registros" y retiro de caja. Próximo:
-> sistema del depósito.
+> Última actualización: Fase 2 del despliegue pasa a ser un instalador
+> `.exe` de doble clic (`sistema-local/installer/ferreteria.iss`, Inno
+> Setup) — Postgres desatendido si hace falta, usuario/contraseña de DB
+> generados en el momento, Node.js embebido (se probó `pkg` en serio,
+> rompe con NestJS, se descartó con evidencia), servicio NSSM, backup por
+> tarea programada, acceso directo sin barra de navegador
+> (`abrir-ferreteria.vbs`, modo `--app` de Edge). Certificados de ARCA
+> siguen siendo un paso manual a propósito (seguridad). Compilado y
+> verificado en esta máquina; instalación real de punta a punta en una PC
+> Windows queda pendiente (sandbox sin admin). Ver "Despliegue" → Fase 2.
+> Antes: empaquetado Fase 1. Próximo: Fase 3 (ARCA producción, pendiente),
+> probar el instalador en una PC real, y sistema del depósito.
 
 ---
 
@@ -57,8 +63,12 @@ Corren en dos computadoras distintas y **por ahora no se comunican entre sí**.
 
 - **Backend:** NestJS + TypeORM · **DB:** PostgreSQL · **Frontend:** Angular
   22 (standalone, sin NgModules) en `sistema-local/frontend/` — Fase 1 lista.
-  **Infra:** Docker Compose (local/offline).
+  **Infra: NATIVA en Windows, sin Docker** (no existe ni va a existir un
+  docker-compose en este proyecto — Postgres corre como servicio nativo de
+  Windows, el backend como servicio/tarea programada. Ver "Despliegue").
 - **Lenguaje:** TypeScript · Node.js >= 18. El proyecto usa `tsx` para scripts.
+- **API bajo `/api`**: en producción un solo proceso sirve todo (backend +
+  build de Angular) en un solo puerto — ver "Despliegue" → Fase 1.
 
 ---
 
@@ -481,6 +491,159 @@ muestra CARGO y PAGO. Cero errores de consola en todo el recorrido.
 
 ---
 
+## Despliegue
+
+Sin Docker, nunca lo hubo de verdad (el `.gitignore`/comentarios viejos que
+decían "Docker Compose" estaban desactualizados — corregido). Todo nativo en
+Windows: Postgres como servicio del sistema operativo, el backend como
+servicio/tarea programada. Tres fases:
+
+### Fase 1 — Empaquetado (hecho)
+Un solo proceso, un solo puerto sirve todo:
+- **`/api`**: `main.ts` tiene `app.setGlobalPrefix('api')` — todas las rutas
+  de todos los controladores quedan bajo `/api/...`. Necesario para que no
+  choquen con los archivos estáticos del frontend ni con las rutas propias
+  del router de Angular (deep links) en la raíz.
+- **`ServeStaticModule`** (`@nestjs/serve-static`, en `AppModule`) sirve el
+  build de Angular desde `sistema-local/backend/public/` — **se registra
+  solo si esa carpeta existe** (`existsSync` antes de armar el array de
+  `imports`). En dev (`npm run start:dev`) esa carpeta no existe, así que el
+  módulo directamente no se registra: cero riesgo de romper el flujo de
+  `ng serve` en 4200 por una carpeta faltante. `exclude: ['/api/{*splat}']`
+  hace que el fallback a `index.html` (para los deep links de Angular) no le
+  pise las respuestas a la API — un `/api/lo-que-sea` inexistente sigue
+  dando 404 real, no `index.html`.
+- **`public/` vive AL LADO de `dist/`, no adentro**: `nest-cli.json` tiene
+  `deleteOutDir: true`, así que `nest build` borra `dist/` en cada
+  compilación. Si el frontend viviera ahí adentro, cada build de backend se
+  lo llevaría puesto.
+- **Environments del frontend**: `environment.ts` (producción, el que usa
+  `ng build` por default) apunta a `apiBaseUrl: '/api'` — relativo, mismo
+  origen, sin CORS, sin hardcodear host/puerto.
+  `environment.development.ts` (el que usa `ng serve`) sigue apuntando a
+  `http://localhost:3000/api` — el flujo de desarrollo actual (frontend en
+  4200, backend en 3000, con `app.enableCors()`) no cambió.
+- **`npm run build:prod`** (`sistema-local/backend/package.json`): corre
+  `ng build --configuration production` en el frontend, copia el resultado
+  a `backend/public/` (`scripts/copiar-frontend.ts` — `rmSync` + `cpSync`,
+  no reusa nada del backend en runtime) y después `nest build`. Deja
+  `backend/dist/main.js` listo para `node dist/main.js`, con `public/` al
+  lado.
+
+### Fase 2 — Instalación en la PC del local (hecho, para probar)
+**Camino principal: correr `FerreteriaSetup.exe`** (Inno Setup,
+`sistema-local/installer/ferreteria.iss`) — un solo doble clic hace todo lo
+que antes era 7 pasos manuales. El paso a paso manual sigue documentado
+como anexo de respaldo en `sistema-local/docs/INSTALACION.md`, por si el
+instalador falla en algún punto puntual.
+
+**Por qué instalador nativo (Inno Setup) y no Electron/Tauri**: esto no es
+una app de escritorio con UI propia — es un backend NestJS sirviendo HTML
+que ya se abre bien en cualquier navegador (ver Fase 1). Empaquetar eso en
+Electron/Tauri agrega ~100-200MB y una cadena de build entera por algo
+puramente cosmético (una ventana sin barra de navegador). Se resuelve con
+`msedge.exe --app=<url>` (ver más abajo) y un instalador clásico se banca
+todo lo demás (Postgres, servicio, tarea programada) sin ese costo.
+
+**Qué hace el instalador, en orden** (todo en `[Code]` de `ferreteria.iss`,
+Pascal Script de Inno Setup):
+1. Detecta Postgres vía `RegKeyExists(HKLM, 'SOFTWARE\PostgreSQL\Installations')`.
+   Si no está, lo instala desatendido (`--mode unattended`, EDB installer).
+   Si ya está, pide la contraseña del superusuario por wizard (no se
+   guarda, se usa una sola vez). `EncontrarCarpetaBinPostgres` ubica
+   `psql.exe`/`pg_dump.exe` recorriendo el registro — no depende de conocer
+   la versión de Postgres de antemano, funciona igual en los dos casos.
+2. Crea usuario (`ferreteria_app`) y base (`ferreteria_local`) PROPIOS de
+   la app con una contraseña **generada en el momento**
+   (`GenerarPasswordAleatoria`) — nunca una fija en el `.exe`. Mismo gotcha
+   documentado en el anexo manual: `CREATE EXTENSION "uuid-ossp"` la hace
+   el superusuario, `ferreteria_app` no tiene permiso.
+3. Copia la app a `C:\Ferreteria` (ruta fija — `DisableDirPage=yes`, evita
+   dolores de cabeza de permisos/espacios de Program Files para un
+   servicio que necesita escribir `.env`/`backups/`), con **Node.js
+   embebido** (ver Fase 1 / TAREA 1 más abajo).
+4. Genera `{app}\.env` sustituyendo tokens (`{{DB_PASSWORD}}`, etc., ver
+   `installer/plantillas/env.template`) con la contraseña generada + los
+   datos del emisor pedidos por wizard (`PaginaEmisor`). ARCA queda en
+   homologación por default, sin preguntarlo — el salto a producción es la
+   Fase 3, aparte.
+5. Registra el backend como servicio de Windows vía **NSSM**
+   (`vendor/nssm.exe`, embebido): arranque automático + reinicio si se cae.
+6. Crea la tarea programada del backup (`schtasks`, diaria 23:30),
+   apuntando al `ejecutar-backup.bat` ya instalado.
+7. Crea el acceso directo del escritorio → ver "Acceso directo sin barra de
+   navegador" abajo.
+8. El desinstalador (`CurUninstallStepChanged`) saca el servicio (`nssm
+   remove`) y la tarea programada, y los archivos que instaló Inno. **A
+   propósito NUNCA toca la base de datos ni `{app}\backups`** — los datos
+   del negocio no se borran por un desinstalador.
+
+**Runtime de Node embebido (TAREA 1 del empaquetado)**: se evaluó `pkg`
+primero — probado en serio, no solo descartado de oído: compilar
+`dist/main.js` con `pkg` (`node18-win-x64`) da un `.exe` que arranca pero
+tira `Cannot find module 'ansis'` al toque (`require` dinámico que la
+resolución estática de `pkg` no detecta — exactamente el problema conocido
+de `pkg`/`nexe` con NestJS/TypeORM). Se descartó con evidencia real, no
+solo por fama. La solución que se usa: shippear el runtime portable de
+Node.js (`node.exe` + su propio `npm`/`node_modules`) DENTRO del
+instalador, en `{app}\node\`, y arrancar con
+`"{app}\node\node.exe" "{app}\dist\main.js"` (ver
+`installer/plantillas/iniciar-backend.bat` — variante INSTALADA, distinta
+de la que usa el anexo manual, que asume Node ya en el `PATH` del sistema).
+Cero instalación de Node aparte en la PC del local.
+
+**Acceso directo sin barra de navegador** (`installer/abrir-ferreteria.vbs`,
+TAREA 3): el acceso directo del escritorio no abre la URL directo — corre
+un `.vbs` con `wscript.exe` (asociación explícita en el `[Icons]` del
+`.iss`, nunca `cscript.exe`, así **nunca muestra una consola**). Ese script:
+reintenta con `WinHttpRequest` hasta 30 segundos esperando que
+`localhost:3000` responda (el servicio puede tardar unos segundos si la PC
+recién prendió) y recién ahí abre `msedge.exe --app=http://localhost:3000`
+(fallback a `chrome.exe` si Edge no está, y al navegador default como
+último recurso) — ventana de aplicación, sin barra de direcciones ni
+pestañas, con ícono propio (`installer/app.ico`, placeholder genérico "F"
+sobre azul hasta que el titular pase el logo real — ver
+`docs/INSTALACION.md` → "Reemplazar el ícono").
+
+**Seguridad — qué el instalador NUNCA contiene**: certificados de ARCA
+(`.crt`/`.key`) ni el `.env` con secretos reales. La `.key` de producción es
+la llave fiscal de la empresa — un `.exe` que la contuviera es un archivo
+que se copia, se manda por mail o se pierde en un pendrive. Se colocan a
+mano después de instalar, en `C:\Ferreteria\certs\` (carpeta vacía con un
+`LEEME.txt`, creada por el instalador). Los binarios de terceros que sí
+necesita el instalador (Node runtime, instalador de Postgres, NSSM) van en
+`installer/vendor/` — gitignored, no específicos de esta ferretería, se
+consiguen una vez por quien compila (ver
+`installer/vendor/README.md`).
+
+**Verificado en esta máquina**: `ferreteria.iss` compila limpio con Inno
+Setup 6 (`ISCC.exe`) y genera un `.exe` real — probado de punta a punta
+(incluidos dos bugs reales de Pascal Script encontrados y corregidos: un
+comentario `{ }` que se cerraba solo al toparse con un `{app}`/`{{TOKEN}}`
+adentro — Pascal Script no anida comentarios de llaves, se resolvió pasando
+todo `[Code]` a comentarios `//`; y `LoadStringFromFile`/`SaveStringToFile`
+que esperan `AnsiString`, no el `String` Unicode del resto del script). **NO
+se pudo verificar en esta máquina** (sandbox sin permisos de administrador
+ni GUI interactiva): correr el instalador de punta a punta de verdad
+(instalación real de Postgres, registro real del servicio NSSM, el wizard
+interactivo, UAC), ni el comportamiento real de `abrir-ferreteria.vbs`
+abriendo Edge. Falta probarlo en una PC (o VM) Windows real antes de
+confiar en esto para la PC del local — ver `docs/INSTALACION.md`.
+
+### Fase 3 — Salto a ARCA producción (PENDIENTE)
+Todavía en homologación a propósito. Falta, en este orden: datos legales
+reales del emisor en el `.env` (domicilio, IIBB, inicio de actividades —
+los carga Mateo), certificado de PRODUCCIÓN de ARCA (no sirve el de
+homologación, da "computador no autorizado"), CUIT de la EMPRESA en
+`EMISOR_CUIT` (hoy homologación usa el CUIT personal de Mateo — ver
+"Facturación (ARCA)" → "Homologación vs. Producción", no confundir),
+`EMISOR_PUNTO_VENTA` real (el "RECE web services" creado en el portal de
+ARCA para producción, no el "1" de homologación), y recién ahí
+`ARCA_AMBIENTE=produccion`. No se toca nada de esto hasta que el titular
+confirme que está listo — ver "Qué NO hacer".
+
+---
+
 ## Estrategia de backup (CRÍTICO) — `sistema-local/backend/scripts/backup.ts`
 
 Dato irremplazable: **saldos de cuentas corrientes (fiado)** y las **fichas
@@ -597,11 +760,40 @@ Hecho:
       documentado en `scripts/README-backup.md`. Programación horaria
       (cron/tarea programada) pendiente del despliegue. Detalle completo en
       "Estrategia de backup".
+- [x] **Despliegue Fase 1 (empaquetado) + Fase 2 (instalación)**: `/api`
+      global (`main.ts`), `ServeStaticModule` condicional sirviendo
+      `backend/public/` (`AppModule`), environments de prod/dev separados,
+      `npm run build:prod`. Instalación nativa en Windows documentada en
+      `sistema-local/docs/INSTALACION.md` (Postgres servicio, NSSM/Task
+      Scheduler, backup por tarea programada). Verificado de punta a punta:
+      build, `node dist/main.js`, navegador real (Playwright) sin errores de
+      consola, todas las llamadas por `/api`, crear cliente → abrir ficha →
+      PDF de presupuesto. Auditoría de seguridad: 2 huecos reales
+      encontrados y corregidos en `.gitignore` (`.env.production.example`
+      quedaba ignorado por el patrón `.env.*`; `backend/public/` — el build
+      copiado del frontend — no estaba ignorado y aparecía como untracked).
+      Sin CUIT real ni secretos hardcodeados en el repo. Detalle completo en
+      "Despliegue". **Fase 3 (ARCA producción) sigue pendiente, a propósito.**
+- [x] **Instalador `.exe` de la Fase 2** (`sistema-local/installer/`, Inno
+      Setup — `ferreteria.iss`): Postgres detectado/instalado desatendido,
+      usuario y contraseña de DB generados en el momento (nunca fijos),
+      Node.js embebido (`pkg` probado y descartado con evidencia real —
+      rompe con `require` dinámicos de NestJS), servicio NSSM, tarea
+      programada de backup, acceso directo sin barra de navegador
+      (`abrir-ferreteria.vbs`, espera al servicio, `msedge --app`).
+      Certificados de ARCA fuera del instalador a propósito (paso manual,
+      documentado). `docs/INSTALACION.md` reorganizado: instalador como
+      camino principal, pasos manuales como anexo de respaldo. Compilado y
+      verificado con `ISCC.exe` en esta máquina (2 bugs reales de Pascal
+      Script encontrados y corregidos). **No probado de punta a punta en
+      una PC Windows real** (sandbox sin admin/GUI) — pendiente antes de
+      confiar en esto para la PC del local. Detalle completo en
+      "Despliegue" → Fase 2.
 - [ ] **Sistema del depósito** (ABM de productos) — ni backend ni frontend.
 - [ ] **Factura C**: sumar CbteTipo 11. Pendiente de confirmar con el titular
       si la necesita (hoy el emisor es RI, así que
       `Cliente.tipoFacturaCorrespondiente()` nunca deriva C).
-- [ ] Datos legales del emisor en el `.env` (domicilio, IIBB, inicio de
+- [x] Datos legales del emisor en el `.env` (domicilio, IIBB, inicio de
       actividades) — los carga Mateo.
 - [ ] Antes de producción: `.gitignore` tapando `certs/` y `.env`, egress
       restringida, `.key` de producción respaldada.

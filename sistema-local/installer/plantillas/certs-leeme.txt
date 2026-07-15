@@ -1,0 +1,22 @@
+Esta carpeta esta VACIA a proposito.
+
+El instalador de Ferreteria (por seguridad -- ver CLAUDE.md -> "Despliegue"
+-> Fase 2 y el README del instalador) NUNCA incluye los certificados de
+ARCA. La clave privada (.key) es la llave fiscal de la empresa: un
+instalador que la contenga es un archivo que se puede copiar, mandar por
+mail o perder en un pendrive.
+
+Paso manual, despues de instalar:
+
+1. Conseguir el certificado de homologacion (.crt) y la clave privada (.key)
+   generados en WSASS con el CUIT personal usado para probar (ver CLAUDE.md
+   -> "Facturacion (ARCA)" -> "Homologacion vs. Produccion" -- NO confundir
+   con el certificado de produccion, son cosas distintas).
+2. Copiarlos a esta carpeta con estos nombres EXACTOS (el .env generado por
+   el instalador ya apunta aca):
+     homologacion.crt
+     homologacion.key
+3. Borrar este archivo (LEEME.txt) si queres, no hace falta.
+
+La .key NUNCA se manda por mail ni se sube a ningun lado -- se copia directo
+de PC a PC (pendrive, o a mano).

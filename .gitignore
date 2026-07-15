@@ -10,12 +10,19 @@ build/
 .env
 .env.*
 !.env.example
+!.env.production.example
 
 # Certificados y claves de ARCA — NUNCA se versionan
 *.crt
 *.key
 *.pem
 certs/
+
+# Build del frontend copiado acá por `npm run build:prod` (ver
+# scripts/copiar-frontend.ts) — artefacto, no se versiona. Ojo: NO usar un
+# patrón "public/" a secas, pisaría el public/ del frontend (assets fuente,
+# sí se versiona).
+sistema-local/backend/public/
 
 # Backups locales (dumps y saldos de cta cte)
 backups/
@@ -24,6 +31,15 @@ backups/
 
 # PDFs de prueba (probar:pdf) — no son parte del repo
 comprobante-prueba.pdf
+
+# Instalador (Inno Setup, ver sistema-local/installer/): el .exe compilado y
+# los binarios de terceros que hay que poner en vendor/ antes de compilar
+# (node.exe portable, instalador de Postgres, nssm.exe — ver
+# installer/vendor/README.md) no se versionan, son grandes y no son
+# especificos de este repo.
+sistema-local/installer/Output/
+sistema-local/installer/vendor/*
+!sistema-local/installer/vendor/README.md
 
 # Logs
 *.log
