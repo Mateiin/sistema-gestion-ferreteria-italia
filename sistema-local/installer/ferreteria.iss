@@ -154,11 +154,6 @@ Source: "vendor\postgresql-installer.exe"; DestDir: "{tmp}"; Flags: dontcopy ski
 ; con su LEEME (arriba) explicando el paso manual de TAREA 4.
 Name: "{app}\backups"
 Name: "{app}\certs"
-; Carpeta de backup en el escritorio del usuario: el titular la ve apenas
-; instala, sin tener que buscar en C:\Ferreteria. Si el usuario cambia la
-; ruta en el wizard, se usa esa en vez de esta (ver ForceDirectories en
-; CurStepChanged).
-Name: "{userdesktop}\Ferreteria Backups"
 
 [Icons]
 ; wscript.exe explicito (no confiar en la asociacion de .vbs del sistema):
@@ -286,7 +281,7 @@ begin
     'pueden completar despues editando el archivo .env en la carpeta de ' +
     'instalacion, sin tener que reinstalar.');
   PaginaBackup.Add('Carpeta de backup local:', False);
-  PaginaBackup.Values[0] := ExpandConstant('{userdesktop}\Ferreteria Backups');
+  PaginaBackup.Values[0] := '';
   // Sin acentos a proposito, como el resto del texto de UI de este script
   // (ver GenerarEnv): el .iss se guarda en UTF-8 SIN BOM, y sin BOM el
   // compilador de Inno Setup interpreta el archivo con el codepage ANSI del
@@ -552,11 +547,11 @@ begin
     end;
 
     WizardForm.StatusLabel.Caption := 'Generando la configuracion (.env)...';
-    // [Dirs] ya crea {userdesktop}\Ferreteria Backups por default, pero
-    // PaginaBackup.Values[0] se puede haber editado a otra carpeta -- nos
-    // aseguramos de que exista antes de que el backup de esta noche la necesite.
+    // [Dirs] ya crea {app}\backups por default, pero PaginaBackup.Values[0]
+    // se puede haber editado a otra carpeta -- nos aseguramos de que exista
+    // antes de que el backup de esta noche la necesite.
     if Trim(PaginaBackup.Values[0]) = '' then
-      PaginaBackup.Values[0] := ExpandConstant('{userdesktop}') + '\Ferreteria Backups';
+      PaginaBackup.Values[0] := ExpandConstant('{app}') + '\backups';
     ForceDirectories(PaginaBackup.Values[0]);
     GenerarEnv();
 
