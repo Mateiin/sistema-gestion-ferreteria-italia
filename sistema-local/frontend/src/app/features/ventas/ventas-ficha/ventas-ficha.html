@@ -103,10 +103,27 @@
 
   @if (v.estado === EstadoVenta.ABIERTA) {
     <div class="tarjeta">
-      <h2>Agregar línea</h2>
+      <div class="cabecera-linea-ficha">
+        <h2>Agregar línea</h2>
+        <div class="acciones-ficha-horizontal">
+          <button type="button" class="btn btn-chico" (click)="imprimirPresupuesto()" [disabled]="generandoPresupuesto()">
+            @if (generandoPresupuesto()) { <span class="spinner"></span> }
+            Imprimir presupuesto
+          </button>
+          <button
+            type="button"
+            class="btn btn-primario btn-chico"
+            (click)="abrirModalFacturar()"
+            [disabled]="v.lineas.length === 0"
+            [title]="v.lineas.length === 0 ? 'Cargá al menos una línea antes de facturar' : ''"
+          >
+            Facturar
+          </button>
+        </div>
+      </div>
       <p class="ayuda">
         Este cliente corresponde a <strong>Factura {{ tipoFacturaCliente(v.cliente) }}</strong>:
-        cargá el {{ etiquetaPrecio() | lowercase }}.
+        cargá el {{ etiquetaPrecio() | lowercase }}. El presupuesto no es fiscal ni cierra la ficha.
       </p>
       <form [formGroup]="lineaForm" (ngSubmit)="agregarLinea()">
         <div class="campo">
@@ -142,10 +159,12 @@
             </select>
           </div>
         </div>
-        <button type="submit" class="btn btn-primario" [disabled]="guardandoLinea()">
-          @if (guardandoLinea()) { <span class="spinner"></span> }
-          Agregar línea
-        </button>
+        <div class="fila-submit-linea">
+          <button type="submit" class="btn btn-primario" [disabled]="guardandoLinea()">
+            @if (guardandoLinea()) { <span class="spinner"></span> }
+            Agregar línea
+          </button>
+        </div>
       </form>
     </div>
   }
@@ -189,26 +208,6 @@
       </table>
     }
     <p class="total-ficha">Total: $ {{ v.total | number: '1.2-2' }}</p>
-  </div>
-
-  <div class="acciones-ficha">
-    <button type="button" class="btn" (click)="imprimirPresupuesto()" [disabled]="generandoPresupuesto()">
-      @if (generandoPresupuesto()) { <span class="spinner"></span> }
-      Imprimir presupuesto
-    </button>
-    <span class="texto-tenue">No fiscal, no cierra la ficha — se puede pedir las veces que haga falta.</span>
-
-    @if (v.estado === EstadoVenta.ABIERTA) {
-      <button
-        type="button"
-        class="btn btn-primario"
-        (click)="abrirModalFacturar()"
-        [disabled]="v.lineas.length === 0"
-        [title]="v.lineas.length === 0 ? 'Cargá al menos una línea antes de facturar' : ''"
-      >
-        Facturar
-      </button>
-    }
   </div>
 }
 

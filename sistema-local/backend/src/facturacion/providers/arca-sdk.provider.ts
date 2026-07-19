@@ -70,6 +70,13 @@ export class ArcaSdkProvider implements ArcaProvider {
       cert: emisor.cert,
       key: emisor.key,
       production: emisor.ambiente === 'produccion',
+      // Los servidores de ARCA (homologación Y producción, mismo software
+      // viejo) siguen usando parámetros Diffie-Hellman que el OpenSSL
+      // moderno de Node rechaza por default ("dh key too small"). Este flag
+      // (documentado por @arcasdk/core) arma el handshake TLS con un
+      // https.Agent legacy (SECLEVEL=1). No es un problema de nuestro
+      // certificado ni de la config del emisor.
+      useHttpsAgent: true,
     });
   }
 

@@ -326,12 +326,26 @@ h1 .badge {
   margin: 0;
 }
 
-.acciones-ficha {
+.cabecera-linea-ficha {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  justify-content: space-between;
+  gap: 1rem;
   flex-wrap: wrap;
-  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+.cabecera-linea-ficha h2 {
+  margin: 0;
+}
+
+.acciones-ficha-horizontal {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.fila-submit-linea {
+  margin-top: 0.5rem;
 }
 
 .opcion-radio {

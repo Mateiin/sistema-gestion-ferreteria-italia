@@ -7,6 +7,7 @@ import { ServeStaticModule } from '@nestjs/serve-static';
 import { FacturacionModule } from './facturacion/modulo/facturacion.module';
 import { VentasModule } from './ventas/modulo/ventas.module';
 import { CajaModule } from './caja/modulo/caja.module';
+import { BackupModule } from './backup/modulo/backup.module';
 
 // Build de Angular copiado acá por `npm run build:prod` (ver
 // scripts/copiar-frontend.ts) — vive junto a `dist/`, no adentro (`nest
@@ -49,6 +50,7 @@ const CARPETA_FRONTEND = join(__dirname, '..', 'public');
     FacturacionModule,
     VentasModule,
     CajaModule,
+    BackupModule,
   ],
 })
 export class AppModule {}

@@ -12,6 +12,7 @@
     "copiar:frontend": "tsx scripts/copiar-frontend.ts",
     "build:prod": "npm run build:frontend && npm run copiar:frontend && npm run build",
     "probar:fe": "tsx scripts/probar-facturacion.ts",
+    "verificar:prod": "tsx scripts/verificar-produccion.ts",
     "probar:calculo": "tsx scripts/probar-calculo-iva.ts",
     "probar:pdf": "tsx scripts/probar-pdf.ts",
     "backup": "tsx scripts/backup.ts",

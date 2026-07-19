@@ -121,6 +121,23 @@ const ANCHO_COLUMNA_LETRA = 62;
  * ancha para "Fecha de Inicio de Actividades: DD/MM/AAAA" en una línea. */
 const ANCHO_COLUMNA_DATOS = 200;
 
+/** Tope de ancho/alto del logo del emisor en el encabezado, vía `fit` de
+ * pdfmake (escala manteniendo proporción DENTRO de esta caja — a diferencia
+ * de solo fijar `width`, esto también acota la altura si el logo es
+ * apaisado/vertical, para que uno muy alto no empuje "Razón Social"/
+ * "Domicilio" de más). El ancho es prácticamente el ancho ÚTIL completo de
+ * la columna del emisor (página A4 = 595.28pt − 60pt de márgenes − 62pt de
+ * la columna de la letra − 200pt de la de datos = 273.28pt de columna, menos
+ * el margen [3,4,3,3] de la celda ≈ 267pt; se deja 260 con un pequeño
+ * colchón) — pedido explícito: que el logo llene ese ancho en vez de quedar
+ * angosto con aire en blanco al lado. El alto (90) es generoso a propósito
+ * para que el ANCHO sea casi siempre el lado que termina limitando el
+ * tamaño (`fit` usa el más restrictivo de los dos); si algún logo viene muy
+ * apaisado y el ancho de 260 ya lo deja bajo, no hay problema, pero uno muy
+ * cuadrado/vertical no va a estirarse más allá de 90 de alto. */
+const ANCHO_MAXIMO_LOGO_EMISOR = 240;
+const ALTO_MAXIMO_LOGO_EMISOR = 90;
+
 /** Línea "Etiqueta: valor" del encabezado (emisor o comprobante): la
  * etiqueta (lo que va antes de los dos puntos) siempre en negrita; el valor
  * en negrita solo si `negritaValor` (Punto de Venta/Comp. Nro/Fecha de
@@ -155,7 +172,11 @@ function lineaEncabezado(etiqueta: string, valor: string, margenInferior = 2, ne
  */
 export function armarEncabezadoArca(datos: EncabezadoArcaDatos) {
   const bloqueEmisor = datos.emisor.logoDataUrl
-    ? { image: datos.emisor.logoDataUrl, width: 110, margin: [0, 0, 0, 4] as [number, number, number, number] }
+    ? {
+        image: datos.emisor.logoDataUrl,
+        fit: [ANCHO_MAXIMO_LOGO_EMISOR, ALTO_MAXIMO_LOGO_EMISOR] as [number, number],
+        margin: [0, 0, 0, 4] as [number, number, number, number],
+      }
     : {
         text: datos.emisor.razonSocial,
         style: 'tituloEmisor' as const,

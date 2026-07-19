@@ -44,6 +44,51 @@ export interface Emisor {
   logoDataUrl?: string;
 }
 
+/**
+ * El backend tiene que poder arrancar sin los certificados de ARCA (paso
+ * manual posterior a instalar, ver `certs/LEEME.txt` / `docs/INSTALACION.md`):
+ * si faltan, solo tiene que fallar FACTURAR, no toda la app (Caja, Ventas,
+ * Clientes no dependen de ARCA). Este error identifica ese caso puntual para
+ * que el Gestor lo traduzca a un mensaje HTTP claro en vez de un 500 genérico.
+ */
+export class CertificadosArcaFaltantesError extends Error {
+  constructor(rutaEsperada: string) {
+    super(
+      `Faltan los certificados de ARCA (no se encontró "${rutaEsperada}"). ` +
+        'Copiá homologacion.crt y homologacion.key a la carpeta certs/ (ver certs/LEEME.txt) y volvé a facturar.',
+    );
+    this.name = 'CertificadosArcaFaltantesError';
+  }
+}
+
+/**
+ * Define `propiedad` en `objetivo` como un PEM leído recién la primera vez
+ * que se accede (no al armar el Emisor). Así `cargarEmisorDesdeEnv` puede
+ * devolver un Emisor válido aunque el archivo todavía no exista: el error
+ * (claro, `CertificadosArcaFaltantesError`) recién sale cuando algo intenta
+ * usar el certificado de verdad (hoy, solo `ArcaSdkProvider` al construirse).
+ */
+function definirPemPerezoso(
+  objetivo: object,
+  propiedad: 'cert' | 'key',
+  ruta: string,
+): void {
+  let cache: string | undefined;
+  Object.defineProperty(objetivo, propiedad, {
+    enumerable: true,
+    get(): string {
+      if (cache === undefined) {
+        try {
+          cache = fs.readFileSync(ruta, 'utf8');
+        } catch {
+          throw new CertificadosArcaFaltantesError(ruta);
+        }
+      }
+      return cache;
+    },
+  });
+}
+
 const EXTENSIONES_LOGO_SOPORTADAS: Record<string, string> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -57,20 +102,29 @@ const EXTENSIONES_LOGO_SOPORTADAS: Record<string, string> = {
  * fallback de texto (ver `formato-arca.ts`).
  */
 function cargarLogoDataUrl(rutaLogo?: string): string | undefined {
-  if (!rutaLogo) return undefined;
+  if (!rutaLogo) {
+    console.warn(
+      'EMISOR_LOGO_PATH no está configurado: el PDF usará el nombre del emisor como texto.',
+    );
+    return undefined;
+  }
+  const resuelta = path.resolve(rutaLogo);
   const mime = EXTENSIONES_LOGO_SOPORTADAS[path.extname(rutaLogo).toLowerCase()];
   if (!mime) {
     console.warn(
-      `EMISOR_LOGO_PATH ("${rutaLogo}") tiene una extensión no soportada (usá .png o .jpg): se usa el nombre del emisor como texto.`,
+      `EMISOR_LOGO_PATH="${rutaLogo}" (resuelta: "${resuelta}") extensión no soportada (usá .png o .jpg): se usa el nombre del emisor como texto.`,
     );
     return undefined;
   }
   try {
-    const buffer = fs.readFileSync(rutaLogo);
+    const buffer = fs.readFileSync(resuelta);
+    console.log(
+      `Logo del emisor cargado desde "${resuelta}" (${buffer.length} bytes).`,
+    );
     return `data:${mime};base64,${buffer.toString('base64')}`;
-  } catch {
+  } catch (err) {
     console.warn(
-      `No se pudo leer EMISOR_LOGO_PATH ("${rutaLogo}"): se usa el nombre del emisor como texto.`,
+      `No se pudo leer EMISOR_LOGO_PATH="${rutaLogo}" (resuelta: "${resuelta}"): ${err instanceof Error ? err.message : err}. Se usa el nombre del emisor como texto.`,
     );
     return undefined;
   }
@@ -87,19 +141,24 @@ export function cargarEmisorDesdeEnv(): Emisor {
     return valor;
   };
 
-  return {
+  const emisor = {
     id: process.env.EMISOR_ID ?? 'ferreteria',
     razonSocial: requerido('EMISOR_RAZON_SOCIAL'),
     cuit: Number(requerido('EMISOR_CUIT')),
     puntoVenta: Number(requerido('EMISOR_PUNTO_VENTA')),
     condicionIva: (process.env.EMISOR_CONDICION_IVA as CondicionIva) ?? 'RI',
     ambiente: (process.env.ARCA_AMBIENTE as Ambiente) ?? 'homologacion',
-    // Los certificados se pasan como contenido PEM (podés leerlos de archivo o de un secret manager)
-    cert: fs.readFileSync(requerido('ARCA_CERT_PATH'), 'utf8'),
-    key: fs.readFileSync(requerido('ARCA_KEY_PATH'), 'utf8'),
     domicilioComercial: process.env.EMISOR_DOMICILIO_COMERCIAL,
     ingresosBrutos: process.env.EMISOR_INGRESOS_BRUTOS,
     inicioActividades: process.env.EMISOR_INICIO_ACTIVIDADES,
     logoDataUrl: cargarLogoDataUrl(process.env.EMISOR_LOGO_PATH),
-  };
+  } as Emisor;
+
+  // Contenido PEM: perezoso a propósito (ver definirPemPerezoso) -- las
+  // variables de entorno con la RUTA sí son obligatorias ahora (requerido),
+  // pero el ARCHIVO en esa ruta recién se lee cuando algo va a facturar.
+  definirPemPerezoso(emisor, 'cert', requerido('ARCA_CERT_PATH'));
+  definirPemPerezoso(emisor, 'key', requerido('ARCA_KEY_PATH'));
+
+  return emisor;
 }

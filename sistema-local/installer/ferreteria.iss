@@ -16,7 +16,8 @@
 ;      ARCA queda en homologacion -- el salto a produccion es aparte, a mano.
 ;   5. Registra el backend como servicio de Windows (NSSM): arranque
 ;      automatico + reinicio si se cae.
-;   6. Crea la tarea programada del backup nocturno (schtasks).
+;   6. Crea la tarea programada del backup (PowerShell, diaria 19:00 + al
+;      inicio del sistema si la PC estaba apagada -- ver registrar-tarea-backup.ps1).
 ;   7. Crea el acceso directo del escritorio (abrir-ferreteria.vbs -- espera
 ;      a que el servicio responda, sin consola negra, ventana "app" sin
 ;      barra de navegador).
@@ -34,6 +35,38 @@
 #define MyAppExeName "abrir-ferreteria.vbs"
 #define MyServiceName "FerreteriaBackend"
 #define MyTaskName "FerreteriaBackup"
+
+; ---------------------------------------------------------------------------
+; Guard de compilacion: [Files] mas abajo usa "skipifsourcedoesntexist" para
+; que un vendor/ incompleto en una maquina no rompa a alguien que solo quiere
+; iterar sobre el wizard -- pero eso significa que un archivo faltante NO
+; frena la compilacion, solo lo omite EN SILENCIO. Ya paso dos veces (primero
+; postgresql-installer.exe/env.template, despues backend/public/ entero -- un
+; .exe de ~51MB o sin frontend, compilando "bien" las dos veces). Estos
+; chequeos con el preprocesador (ISPP, corren ANTES de armar el .exe) frenan
+; la compilacion con un mensaje claro en vez de dejar pasar un instalador
+; roto. Si de verdad haces falta compilar sin alguno de estos (por ejemplo,
+; iterando el wizard sin querer bajar Postgres todavia), comenta la linea
+; correspondiente a mano -- a propósito no hay una forma de saltearlos por
+; parametro, para que no quede un hueco permanente.
+#if !FileExists("vendor\node\node.exe")
+  #error "Falta vendor\node\node.exe -- ver installer\vendor\README.md (Node.js embebido)."
+#endif
+#if !FileExists("vendor\postgresql-installer.exe")
+  #error "Falta vendor\postgresql-installer.exe -- ver installer\vendor\README.md (instalador de PostgreSQL)."
+#endif
+#if !FileExists("vendor\nssm.exe")
+  #error "Falta vendor\nssm.exe -- ver installer\vendor\README.md (NSSM)."
+#endif
+#if !FileExists("plantillas\env.template")
+  #error "Falta installer\plantillas\env.template."
+#endif
+#if !FileExists("..\backend\dist\main.js")
+  #error "Falta ..\backend\dist\main.js -- correr 'npm run build:prod' en sistema-local\backend\ antes de compilar (ver docs\INSTALACION.md)."
+#endif
+#if !FileExists("..\backend\public\index.html")
+  #error "Falta ..\backend\public\index.html -- 'npm run build:prod' no corrio o corrio antes de este cambio: el instalador quedaria SIN FRONTEND (ver docs\INSTALACION.md, hallazgo del 2026-07-16 -- ya paso una vez)."
+#endif
 
 [Setup]
 AppId={{B3D9F4C2-7A1E-4C6B-9E3D-FE1A2B3C4D5E}
@@ -77,11 +110,27 @@ Source: "..\backend\node_modules\*"; DestDir: "{app}\node_modules"; Flags: recur
 Source: "..\backend\package.json"; DestDir: "{app}"; Flags: skipifsourcedoesntexist
 Source: "..\backend\scripts\backup.ts"; DestDir: "{app}\scripts"; Flags: skipifsourcedoesntexist
 Source: "..\backend\scripts\README-backup.md"; DestDir: "{app}\scripts"; Flags: skipifsourcedoesntexist
+; Verificación de solo lectura contra ARCA producción (ver CLAUDE.md /
+; docs/INSTALACION.md -> Fase 3): se copia igual que backup.ts para poder
+; correr "npm run verificar:prod" en esta misma PC antes del salto a
+; producción, sin necesitar el resto de scripts/ (pruebas de homologación).
+Source: "..\backend\scripts\verificar-produccion.ts"; DestDir: "{app}\scripts"; Flags: skipifsourcedoesntexist
+Source: "..\backend\.env.produccion.example"; DestDir: "{app}"; Flags: skipifsourcedoesntexist
 
 ; --- Launchers de la version INSTALADA (usan el Node embebido, ver TAREA 1) ---
 Source: "plantillas\iniciar-backend.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "plantillas\ejecutar-backup.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "plantillas\certs-leeme.txt"; DestDir: "{app}\certs"; DestName: "LEEME.txt"; Flags: ignoreversion
+; Logo del emisor: a diferencia de los certificados de ARCA, NO es un
+; secreto (es el mismo logo que va en la cartelería del local), así que sí
+; se embebe en el instalador y se copia solo -- el titular no tiene que
+; copiar nada a mano (ver CLAUDE.md/docs/INSTALACION.md -> "Logo del
+; emisor"). "skipifsourcedoesntexist" a propósito, NO está en el guard de
+; #error de más arriba: es opcional, si falta el instalador se compila
+; igual (env.template deja EMISOR_LOGO_PATH apuntando igual a este archivo;
+; si no está, el PDF cae solo al texto de la razón social, ver
+; cargarLogoDataUrl en config/emisor.ts -- no rompe nada).
+Source: "assets\logo-ferreteria.png"; DestDir: "{app}\certs"; Flags: skipifsourcedoesntexist ignoreversion
 ; env.template NO se copia a {app} tal cual (se genera el .env real a partir
 ; de esto, ver GenerarEnv) -- mismo patron "dontcopy" que postgresql-installer.exe.
 Source: "plantillas\env.template"; DestDir: "{tmp}"; Flags: dontcopy
@@ -92,6 +141,7 @@ Source: "app.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 ; --- Herramientas embebidas para el propio instalador (no quedan visibles al titular) ---
 Source: "vendor\nssm.exe"; DestDir: "{app}\_instalador"; Flags: skipifsourcedoesntexist
+Source: "plantillas\registrar-tarea-backup.ps1"; DestDir: "{app}\_instalador"; Flags: ignoreversion
 
 ; postgresql-installer.exe NO se copia a {app} (no queda instalado ahi, solo
 ; se corre una vez y se descarta): "dontcopy" lo empaqueta adentro del
@@ -116,8 +166,10 @@ Name: "{autodesktop}\Ferreteria"; Filename: "{sys}\wscript.exe"; \
 var
   PaginaPostgresExistente: TInputQueryWizardPage;
   PaginaEmisor: TInputQueryWizardPage;
+  PaginaBackup: TInputQueryWizardPage;
   PostgresYaEstaba: Boolean;
   PasswordSuperusuario: String;
+  NombreSuperusuario: String;
   PasswordApp: String;
   CarpetaBinPostgres: String;
 
@@ -216,6 +268,33 @@ begin
   PaginaEmisor.Add('Inicio de actividades (DD/MM/AAAA):', False);
   PaginaEmisor.Add('Punto de venta (homologacion = 1):', False);
   PaginaEmisor.Values[5] := '1';
+
+  // El destino LOCAL es obligatorio (siempre se escribe primero, ver
+  // backup.ts); pendrive y Drive son opcionales -- si quedan vacios el
+  // backup sigue funcionando "solo local" (degradado, ver TAREA 3 del
+  // banner de alerta) y se pueden completar despues a mano editando el .env,
+  // sin reinstalar.
+  PaginaBackup := CreateInputQueryPage(PaginaEmisor.ID,
+    'Backup', 'Donde se guardan las copias de seguridad',
+    'El backup corre solo, todas las noches (tarea programada). El destino ' +
+    'local es obligatorio; el pendrive y Google Drive son opcionales y se ' +
+    'pueden completar despues editando el archivo .env en la carpeta de ' +
+    'instalacion, sin tener que reinstalar.');
+  PaginaBackup.Add('Carpeta de backup local:', False);
+  PaginaBackup.Values[0] := '';
+  // Sin acentos a proposito, como el resto del texto de UI de este script
+  // (ver GenerarEnv): el .iss se guarda en UTF-8 SIN BOM, y sin BOM el
+  // compilador de Inno Setup interpreta el archivo con el codepage ANSI del
+  // sistema, no como UTF-8 -- un acento literal ACA se compilaria mal
+  // (mojibake) en el texto que ve el usuario del wizard. Los acentos que SI
+  // hace falta soportar son datos que el usuario TIPEA (razon social,
+  // domicilio, etiqueta del pendrive) -- esos viajan como String Unicode en
+  // memoria sin pasar por este problema, por eso alcanza con Utf8Encode al
+  // escribirlos al .env (ver GenerarEnv).
+  PaginaBackup.Add('Etiqueta del pendrive de backup (opcional). Pone una etiqueta al ' +
+    'pendrive (ej. BACKUP_FERRE) y escribila aca. Se puede configurar despues:', False);
+  PaginaBackup.Add('Carpeta de Google Drive sincronizada (opcional). Requiere tener ' +
+    'instalado Google Drive para escritorio. Se puede configurar despues:', False);
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
@@ -241,6 +320,14 @@ begin
     if Trim(PaginaPostgresExistente.Values[1]) = '' then
     begin
       MsgBox('Hace falta la contrasena del superusuario de Postgres para poder continuar.', mbError, MB_OK);
+      Result := False;
+    end;
+  end;
+  if (PaginaBackup <> nil) and (CurPageID = PaginaBackup.ID) then
+  begin
+    if Trim(PaginaBackup.Values[0]) = '' then
+    begin
+      MsgBox('La carpeta de backup local es obligatoria (pendrive y Google Drive son opcionales).', mbError, MB_OK);
       Result := False;
     end;
   end;
@@ -298,9 +385,13 @@ begin
   Result := False;
 
   if PostgresYaEstaba then
-    PasswordSuperusuario := PaginaPostgresExistente.Values[1]
+  begin
+    NombreSuperusuario := PaginaPostgresExistente.Values[0];
+    PasswordSuperusuario := PaginaPostgresExistente.Values[1];
+  end
   else
   begin
+    NombreSuperusuario := 'postgres';
     if not InstalarPostgresDesatendido() then
       Exit;
   end;
@@ -359,9 +450,16 @@ var
   Plantilla: String;
   PgDumpPath: String;
 begin
-  // LoadStringFromFile/SaveStringToFile trabajan con AnsiString, no con el
-  // String (Unicode) que usa el resto del script -- de ahi el cast en las
-  // dos puntas. El template es ASCII puro, no hay perdida en la conversion.
+  // El TEMPLATE es ASCII puro (env.template no tiene tildes), asi que leerlo
+  // como AnsiString con LoadStringFromFile no pierde nada. El PROBLEMA esta
+  // del otro lado: los valores que vienen del wizard (PaginaEmisor.Values,
+  // razon social/domicilio) SI pueden tener tildes/enie, y de ahi salen a
+  // TODAS las facturas (son datos fiscales impresos en cada comprobante) --
+  // por eso el .env final se escribe con Utf8Encode, no con un cast directo
+  // a AnsiString (que usaria el codepage ANSI de Windows y corromperia esos
+  // caracteres apenas Node los lea como UTF-8, ej. "Cordoba" -> "C{indice}rdoba").
+  // Utf8Encode no antepone BOM -- necesario porque dotenv puede no parsear
+  // la primera variable si el archivo lleva BOM.
   ExtractTemporaryFile('env.template');
   LoadStringFromFile(ExpandConstant('{tmp}\env.template'), PlantillaAnsi);
   Plantilla := String(PlantillaAnsi);
@@ -370,18 +468,22 @@ begin
   Plantilla := Reemplazar(Plantilla, 'DB_USER', DB_USER_APP);
   Plantilla := Reemplazar(Plantilla, 'DB_PASSWORD', PasswordApp);
   Plantilla := Reemplazar(Plantilla, 'DB_NAME', DB_NAME_APP);
+  Plantilla := Reemplazar(Plantilla, 'PG_SUPERUSER_USER', NombreSuperusuario);
+  Plantilla := Reemplazar(Plantilla, 'PG_SUPERUSER_PASSWORD', PasswordSuperusuario);
   Plantilla := Reemplazar(Plantilla, 'EMISOR_RAZON_SOCIAL', PaginaEmisor.Values[0]);
   Plantilla := Reemplazar(Plantilla, 'EMISOR_CUIT', PaginaEmisor.Values[1]);
   Plantilla := Reemplazar(Plantilla, 'EMISOR_DOMICILIO_COMERCIAL', PaginaEmisor.Values[2]);
   Plantilla := Reemplazar(Plantilla, 'EMISOR_INGRESOS_BRUTOS', PaginaEmisor.Values[3]);
   Plantilla := Reemplazar(Plantilla, 'EMISOR_INICIO_ACTIVIDADES', PaginaEmisor.Values[4]);
   Plantilla := Reemplazar(Plantilla, 'EMISOR_PUNTO_VENTA', PaginaEmisor.Values[5]);
-  Plantilla := Reemplazar(Plantilla, 'BACKUP_DIR_LOCAL', ExpandConstant('{app}\backups'));
+  Plantilla := Reemplazar(Plantilla, 'BACKUP_DIR_LOCAL', PaginaBackup.Values[0]);
+  Plantilla := Reemplazar(Plantilla, 'BACKUP_PENDRIVE_LABEL', Trim(PaginaBackup.Values[1]));
+  Plantilla := Reemplazar(Plantilla, 'BACKUP_DIR_DRIVE', Trim(PaginaBackup.Values[2]));
 
   PgDumpPath := CarpetaBinPostgres + '\pg_dump.exe';
   Plantilla := Reemplazar(Plantilla, 'PG_DUMP_PATH', PgDumpPath);
 
-  SaveStringToFile(ExpandConstant('{app}\.env'), AnsiString(Plantilla), False);
+  SaveStringToFile(ExpandConstant('{app}\.env'), Utf8Encode(Plantilla), False);
 end;
 
 // ---------- Servicio (NSSM) y tarea programada (schtasks) ----------
@@ -408,11 +510,25 @@ end;
 procedure RegistrarTareaBackup();
 var
   ResultCode: Integer;
+  Ps1Path: String;
 begin
-  Exec(ExpandConstant('{sys}\schtasks.exe'),
-    '/create /tn "{#MyTaskName}" /tr "' + ExpandConstant('{app}\ejecutar-backup.bat') + '" ' +
-    '/sc daily /st 23:30 /ru SYSTEM /f',
+  // PowerShell Register-ScheduledTask: soporta multiples triggers (diario +
+  // al inicio del sistema), cosa que schtasks no puede hacer solo. Si la PC
+  // esta apagada a las 19:00, el backup corre cuando se prende al otro dia.
+  Ps1Path := ExpandConstant('{app}\_instalador\registrar-tarea-backup.ps1');
+  Exec('powershell.exe',
+    '-ExecutionPolicy Bypass -NoProfile -File "' + Ps1Path + '" ' +
+    '-TaskName "{#MyTaskName}" -BatPath "' + ExpandConstant('{app}\ejecutar-backup.bat') + '"',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  if ResultCode <> 0 then
+  begin
+    // Fallback: si PowerShell falla (version muy vieja, restriccion de
+    // politica, etc.), caemos al schtasks clasico (solo trigger diario).
+    Exec(ExpandConstant('{sys}\schtasks.exe'),
+      '/create /tn "{#MyTaskName}" /tr "' + ExpandConstant('{app}\ejecutar-backup.bat') + '" ' +
+      '/sc daily /st 19:00 /ru SYSTEM /f',
+      '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  end;
 end;
 
 // ---------- Orquestacion ----------
@@ -431,7 +547,24 @@ begin
     end;
 
     WizardForm.StatusLabel.Caption := 'Generando la configuracion (.env)...';
+    // [Dirs] ya crea {app}\backups por default, pero PaginaBackup.Values[0]
+    // se puede haber editado a otra carpeta -- nos aseguramos de que exista
+    // antes de que el backup de esta noche la necesite.
+    if Trim(PaginaBackup.Values[0]) = '' then
+      PaginaBackup.Values[0] := ExpandConstant('{app}') + '\backups';
+    ForceDirectories(PaginaBackup.Values[0]);
     GenerarEnv();
+
+    // La contrasena del superusuario ya quedo en el .env (PG_SUPERUSER_PASSWORD,
+    // ver GenerarEnv), pero ese archivo vive en la misma PC que se quiere poder
+    // recuperar -- mostrarla ahora le da al titular la chance de anotarla en un
+    // lugar aparte (gestor de contrasenas, papel) antes de seguir.
+    MsgBox('Postgres quedo configurado con el superusuario "' + NombreSuperusuario + '".' + #13#10 +
+      'Contrasena: ' + PasswordSuperusuario + #13#10#13#10 +
+      'Esta contrasena tambien quedo guardada en el archivo .env (PG_SUPERUSER_PASSWORD), ' +
+      'pero conviene anotarla ADEMAS en un lugar aparte (gestor de contrasenas, papel guardado ' +
+      'bajo llave): hace falta para restaurar un backup si el .env se pierde junto con el resto ' +
+      'del sistema.', mbInformation, MB_OK);
 
     WizardForm.StatusLabel.Caption := 'Registrando el servicio de Windows...';
     RegistrarServicio();
@@ -456,7 +589,11 @@ begin
       Exec(Nssm, 'stop {#MyServiceName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
       Exec(Nssm, 'remove {#MyServiceName} confirm', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     end;
-    Exec(ExpandConstant('{sys}\schtasks.exe'), '/delete /tn "{#MyTaskName}" /f', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    // schtasks /delete funciona para tareas creadas por schtasks O por
+    // Register-ScheduledTask (ambas se guardan en la misma base del Task
+    // Scheduler de Windows). Si schtasks falla (raro), fallback a PowerShell.
+    if not Exec(ExpandConstant('{sys}\schtasks.exe'), '/delete /tn "{#MyTaskName}" /f', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
+      Exec('powershell.exe', '-NoProfile -Command "Unregister-ScheduledTask -TaskName ''{#MyTaskName}'' -Confirm:$false -ErrorAction SilentlyContinue"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     // A proposito: NO se toca la base de datos (Postgres sigue instalado,
     // con los datos) ni la carpeta de backups -- ver TAREA 2.8. Solo se van
     // el servicio, la tarea programada y los archivos que instalo este

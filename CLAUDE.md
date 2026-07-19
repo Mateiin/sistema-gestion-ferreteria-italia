@@ -4,18 +4,25 @@ Este archivo le da contexto a Claude para trabajar en este proyecto. Leelo al
 inicio de cada sesión. Manténganlo actualizado: un CLAUDE.md viejo manda a
 construir sobre supuestos que ya no valen.
 
-> Última actualización: Fase 2 del despliegue pasa a ser un instalador
-> `.exe` de doble clic (`sistema-local/installer/ferreteria.iss`, Inno
-> Setup) — Postgres desatendido si hace falta, usuario/contraseña de DB
-> generados en el momento, Node.js embebido (se probó `pkg` en serio,
-> rompe con NestJS, se descartó con evidencia), servicio NSSM, backup por
-> tarea programada, acceso directo sin barra de navegador
-> (`abrir-ferreteria.vbs`, modo `--app` de Edge). Certificados de ARCA
-> siguen siendo un paso manual a propósito (seguridad). Compilado y
-> verificado en esta máquina; instalación real de punta a punta en una PC
-> Windows queda pendiente (sandbox sin admin). Ver "Despliegue" → Fase 2.
-> Antes: empaquetado Fase 1. Próximo: Fase 3 (ARCA producción, pendiente),
-> probar el instalador en una PC real, y sistema del depósito.
+> Última actualización: logo real del emisor integrado en los PDF
+> (factura/NC/presupuesto, `fit: [110, 45]` en `formato-arca.ts` — ancho Y
+> alto máximos, mantiene proporción, con fallback a texto verificado de
+> nuevo) y embebido en el instalador (`installer/assets/logo-ferreteria.png`,
+> no es secreto, se copia solo a `certs\` — a diferencia de los
+> certificados de ARCA, que siguen siendo manual). Instalador recompilado
+> con el logo adentro (399,6MB, guard de compilación y chequeo de tamaño
+> intactos). Antes: script de verificación de solo lectura para ARCA
+> PRODUCCIÓN (`scripts/verificar-produccion.ts`, `npm run verificar:prod`,
+> solo `ultimoComprobante()`, config separada en `.env.produccion` —
+> imposible emitir por accidente) — certificado y CUIT de producción reales
+> ya verificados contra ARCA (autenticó y devolvió 0 comprobantes emitidos
+> en A y B); se encontró y corrigió en el camino un bug de TLS legacy de
+> los servidores de ARCA (`dh key too small`, fix: `useHttpsAgent: true` en
+> `@arcasdk/core`, afecta homologación y producción por igual). El salto de
+> verdad a `ARCA_AMBIENTE=produccion` en el `.env` real sigue sin hacerse,
+> a propósito — ver "Despliegue" → Fase 3. Próximo: probar el instalador en
+> una PC real, hacer el salto a producción cuando el titular confirme, y
+> sistema del depósito.
 
 ---
 
@@ -107,9 +114,14 @@ discriminado por alícuota en totales. Factura B: precio unitario y subtotal
 con IVA incluido (el dato guardado sigue siendo siempre NETO — es solo una
 decisión de qué se imprime), totales sin discriminar. No hay "código de
 producto" en este dominio todavía (ver "Sistema A — Depósito"), esa columna
-sale en blanco. Logo del emisor opcional vía `EMISOR_LOGO_PATH` (.png/.jpg):
-si falta, cae al texto de la razón social sin romper la generación. Detalle
-completo en `facturacion/README.md`.
+sale en blanco. Logo del emisor vía `EMISOR_LOGO_PATH` (.png/.jpg) — el logo
+real ya está integrado (`certs/logo-ferreteria.png` en dev,
+`installer/assets/logo-ferreteria.png` embebido en el instalador, ver
+"Despliegue" → Fase 2), renderizado con `fit: [110, 45]` de pdfmake (ancho Y
+alto máximos, mantiene proporción — un logo grande no puede romper el
+encabezado); si el archivo falta o no se puede leer, cae sin romper nada al
+texto de la razón social (verificado con el archivo real, no solo en
+teoría). Detalle completo en `facturacion/README.md`.
 
 ### Arquitectura
 - `interfaces/arca-provider.interface.ts` — PORT (intención de dominio).
@@ -566,14 +578,23 @@ Pascal Script de Inno Setup):
    `installer/plantillas/env.template`) con la contraseña generada + los
    datos del emisor pedidos por wizard (`PaginaEmisor`). ARCA queda en
    homologación por default, sin preguntarlo — el salto a producción es la
-   Fase 3, aparte.
-5. Registra el backend como servicio de Windows vía **NSSM**
+   Fase 3, aparte. `EMISOR_LOGO_PATH` queda seteado por default (no es un
+   dato del wizard): apunta al logo que el instalador ya copió en el paso
+   siguiente.
+5. Copia el **logo del emisor** (`installer/assets/logo-ferreteria.png`,
+   embebido en el `.exe` — no es un secreto, a diferencia de los
+   certificados de ARCA, ver más abajo) a `{app}\certs\logo-ferreteria.png`.
+   Opcional (`skipifsourcedoesntexist`): si faltara, el `.env` generado en
+   el paso 4 sigue apuntando ahí igual, y el sistema simplemente cae al
+   texto de la razón social en los PDF (ver "Facturación (ARCA)" → PDF).
+6. Registra el backend como servicio de Windows vía **NSSM**
    (`vendor/nssm.exe`, embebido): arranque automático + reinicio si se cae.
-6. Crea la tarea programada del backup (`schtasks`, diaria 23:30),
-   apuntando al `ejecutar-backup.bat` ya instalado.
-7. Crea el acceso directo del escritorio → ver "Acceso directo sin barra de
+7. Crea la tarea programada del backup (PowerShell, diaria 19:00 + al
+   inicio del sistema si la PC estaba apagada — `registrar-tarea-backup.ps1`,
+   con fallback a `schtasks` si PowerShell falla).
+8. Crea el acceso directo del escritorio → ver "Acceso directo sin barra de
    navegador" abajo.
-8. El desinstalador (`CurUninstallStepChanged`) saca el servicio (`nssm
+9. El desinstalador (`CurUninstallStepChanged`) saca el servicio (`nssm
    remove`) y la tarea programada, y los archivos que instaló Inno. **A
    propósito NUNCA toca la base de datos ni `{app}\backups`** — los datos
    del negocio no se borran por un desinstalador.
@@ -614,7 +635,11 @@ mano después de instalar, en `C:\Ferreteria\certs\` (carpeta vacía con un
 necesita el instalador (Node runtime, instalador de Postgres, NSSM) van en
 `installer/vendor/` — gitignored, no específicos de esta ferretería, se
 consiguen una vez por quien compila (ver
-`installer/vendor/README.md`).
+`installer/vendor/README.md`). **El logo del emisor es la única excepción a
+propósito**: no es fiscal ni secreto (es el mismo que va en la cartelería
+del local), así que sí viaja embebido y se versiona en git
+(`installer/assets/logo-ferreteria.png`) — ver "Facturación (ARCA)" → PDF y
+paso 5 de "Qué hace el instalador" arriba.
 
 **Verificado en esta máquina**: `ferreteria.iss` compila limpio con Inno
 Setup 6 (`ISCC.exe`) y genera un `.exe` real — probado de punta a punta
@@ -789,6 +814,39 @@ Hecho:
       una PC Windows real** (sandbox sin admin/GUI) — pendiente antes de
       confiar en esto para la PC del local. Detalle completo en
       "Despliegue" → Fase 2.
+- [x] **Verificación de solo lectura para ARCA producción**
+      (`scripts/verificar-produccion.ts`, `npm run verificar:prod`): config
+      separada en `.env.produccion` (nunca el `.env` de desarrollo),
+      exclusiva para `ARCA_AMBIENTE=produccion`, llama únicamente a
+      `ultimoComprobante()` — ningún camino de código que emita. Corrida
+      real contra el certificado y CUIT de producción: autenticó por WSAA y
+      WSFEv1 devolvió 0 comprobantes emitidos (A y B, nunca facturado desde
+      ese punto de venta). En el camino se encontró y corrigió un bug real
+      de conexión (no de certificado): los servidores de ARCA siguen
+      usando parámetros Diffie-Hellman que el OpenSSL moderno de Node
+      rechaza (`dh key too small`) — fix es `useHttpsAgent: true` en la
+      config de `@arcasdk/core` (`arca-sdk.provider.ts`), documentado por el
+      propio paquete, afecta homologación y producción por igual (reprobado
+      en homologación de punta a punta después del cambio: consulta +
+      emisión + Nota de Crédito, todo con CAE real). El salto real a
+      `ARCA_AMBIENTE=produccion` en el `.env` de la PC del local sigue
+      pendiente, a propósito. Detalle completo en "Despliegue" → Fase 3.
+- [x] **Logo real del emisor** en los PDF y en el instalador: integrado en
+      `formato-arca.ts` con `fit: [110, 45]` (ancho y alto máximos de
+      pdfmake, mantiene proporción), fallback a texto de la razón social
+      verificado de nuevo con el archivo real (no solo en teoría). Archivo
+      en `certs/logo-ferreteria.png` (dev) e
+      `installer/assets/logo-ferreteria.png` (versionado, embebido en el
+      instalador — no es secreto, a diferencia de los certificados de
+      ARCA). Reducido de 2584×834/2,3MB a 440×142/~110KB antes de
+      integrarlo (4× el ancho máximo de display, de sobra para verse
+      nítido, sin inflar cada PDF generado). Probado de punta a punta en
+      homologación: Factura A y presupuesto reales con CAE, logo bien
+      posicionado y proporcionado; y de nuevo sin el archivo (renombrado),
+      cae limpio al texto. Instalador recompilado con el logo adentro
+      (399,6MB, guard de `#error` y chequeo de tamaño >350MB intactos).
+      Detalle completo en "Facturación (ARCA)" → PDF y "Despliegue" → Fase 2
+      → "Logo del emisor" (`docs/INSTALACION.md`).
 - [ ] **Sistema del depósito** (ABM de productos) — ni backend ni frontend.
 - [ ] **Factura C**: sumar CbteTipo 11. Pendiente de confirmar con el titular
       si la necesita (hoy el emisor es RI, así que

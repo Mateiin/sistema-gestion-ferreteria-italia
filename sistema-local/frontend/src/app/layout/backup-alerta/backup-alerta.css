@@ -1,0 +1,11 @@
+/* Barra angosta, no bloqueante -- discreta pero visible, debajo de la
+   barra de navegación (ver shell.html). Reusa los colores de `.banner-advertencia`
+   (styles.css) pero sin el radio/margen pensados para tarjetas sueltas. */
+.barra-alerta-backup-contenido {
+  max-width: 1100px;
+  margin: 0 auto;
+  border-radius: 0;
+  border-width: 0 0 1px;
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+}

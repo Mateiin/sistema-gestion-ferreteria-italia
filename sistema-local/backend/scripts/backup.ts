@@ -15,8 +15,13 @@ import { Client, types } from 'pg';
  * Genera, con fecha en el nombre (nunca sobrescribe):
  *   dump_AAAA-MM-DD.sql, saldos_AAAA-MM-DD.csv, fichas_abiertas_AAAA-MM-DD.csv,
  *   clientes_AAAA-MM-DD.csv, caja_AAAA-MM-DD.csv
- * a BACKUP_DIR_LOCAL (obligatorio) y copia esos mismos archivos a
- * BACKUP_DIR_PENDRIVE / BACKUP_DIR_DRIVE (opcionales, tolerantes a fallo).
+ * a BACKUP_DIR_LOCAL (obligatorio) y copia esos mismos archivos al pendrive
+ * (resuelto por BACKUP_PENDRIVE_LABEL, la etiqueta del volumen -- o por
+ * BACKUP_DIR_PENDRIVE, una ruta fija, como fallback viejo) y a
+ * BACKUP_DIR_DRIVE (opcionales, tolerantes a fallo). También escribe
+ * BACKUP_DIR_LOCAL/estado-backup.json con la fecha del último backup
+ * EXITOSO por destino, para que un fallo no quede silencioso en un log que
+ * nadie lee (lo consume GET /api/backup/estado del backend).
  */
 
 const execFileAsync = promisify(execFile);
@@ -315,6 +320,49 @@ interface ResultadoDestino {
   detalle?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Pendrive: resuelto por ETIQUETA de volumen (Get-Volume), no por letra fija
+// -- así funciona en cualquier puerto USB, sin importar qué letra le toque
+// esta vez. BACKUP_DIR_PENDRIVE (ruta fija, el mecanismo viejo) se sigue
+// soportando como fallback/override manual si la etiqueta no está
+// configurada o no resuelve (pendrive desconectado, mal etiquetado).
+// ---------------------------------------------------------------------------
+
+const CARPETA_EN_PENDRIVE = 'FerreteriaBackups';
+
+async function resolverLetraPorEtiqueta(etiqueta: string): Promise<string | null> {
+  // Comilla simple duplicada: forma de escapar una comilla simple DENTRO de
+  // un string de PowerShell entre comillas simples (no hay backslash-escape ahí).
+  const etiquetaEscapada = etiqueta.replace(/'/g, "''");
+  try {
+    const { stdout } = await execFileAsync('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      `(Get-Volume -FileSystemLabel '${etiquetaEscapada}' -ErrorAction Stop).DriveLetter`,
+    ]);
+    const letra = stdout.trim();
+    return letra || null;
+  } catch {
+    // No existe ningún volumen con esa etiqueta ahora mismo -- lo más común
+    // es que el pendrive esté desconectado. No es un error, es "omitido".
+    return null;
+  }
+}
+
+async function resolverDirPendrive(): Promise<string | undefined> {
+  const etiqueta = process.env.BACKUP_PENDRIVE_LABEL;
+  const rutaFija = process.env.BACKUP_DIR_PENDRIVE;
+
+  if (etiqueta) {
+    const letra = await resolverLetraPorEtiqueta(etiqueta);
+    if (letra) return `${letra}:\\${CARPETA_EN_PENDRIVE}`;
+    log('WARNING', `Pendrive con etiqueta "${etiqueta}" no encontrado (¿está conectado? ¿tiene puesta esa etiqueta?)`);
+  }
+
+  return rutaFija;
+}
+
 function copiarADestino(nombre: string, dirDestino: string | undefined, archivos: string[]): ResultadoDestino {
   if (!dirDestino) {
     return { nombre, estado: 'omitido', detalle: 'no configurado (variable de entorno vacía)' };
@@ -341,6 +389,72 @@ function copiarADestino(nombre: string, dirDestino: string | undefined, archivos
   } catch (err) {
     return { nombre, estado: 'error', detalle: (err as Error).message };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Estado del backup: para que un fallo NO sea silencioso. Antes, si el
+// pendrive no estaba, quedaba un WARNING en backup.log que nadie lee y el
+// script terminaba con exit 0 -- un backup degradado a "solo local" no
+// protege del escenario principal (se muere el disco de la PC). Acá se
+// persiste, por destino, la fecha del último backup EXITOSO (no solo del
+// último intento): lo lee GET /api/backup/estado en el backend para avisar
+// en el frontend si hace varios días que no hay copia externa, sin que
+// nadie tenga que ir a leer este log a mano.
+// ---------------------------------------------------------------------------
+
+const NOMBRE_ARCHIVO_ESTADO = 'estado-backup.json';
+
+interface EstadoDestino {
+  ultimoExitoso: string | null;
+  ultimoIntento: string | null;
+  ultimoResultado: 'ok' | 'omitido' | 'error' | null;
+  detalle?: string;
+}
+
+interface EstadoBackup {
+  destinos: Record<'LOCAL' | 'PENDRIVE' | 'DRIVE', EstadoDestino>;
+}
+
+function estadoDestinoVacio(): EstadoDestino {
+  return { ultimoExitoso: null, ultimoIntento: null, ultimoResultado: null };
+}
+
+function leerEstadoPrevio(rutaEstado: string): EstadoBackup {
+  try {
+    const parseado = JSON.parse(fs.readFileSync(rutaEstado, 'utf-8')) as Partial<EstadoBackup>;
+    return {
+      destinos: {
+        LOCAL: parseado.destinos?.LOCAL ?? estadoDestinoVacio(),
+        PENDRIVE: parseado.destinos?.PENDRIVE ?? estadoDestinoVacio(),
+        DRIVE: parseado.destinos?.DRIVE ?? estadoDestinoVacio(),
+      },
+    };
+  } catch {
+    // Primera corrida del sistema, o el archivo quedó corrupto/a medio
+    // escribir -- se arranca de cero en vez de romper el backup por esto.
+    return {
+      destinos: { LOCAL: estadoDestinoVacio(), PENDRIVE: estadoDestinoVacio(), DRIVE: estadoDestinoVacio() },
+    };
+  }
+}
+
+function actualizarEstado(previo: EstadoBackup, resultados: ResultadoDestino[], hoy: string): EstadoBackup {
+  const nuevo: EstadoBackup = { destinos: { ...previo.destinos } };
+  for (const r of resultados) {
+    const nombre = r.nombre as keyof EstadoBackup['destinos'];
+    const anterior = previo.destinos[nombre] ?? estadoDestinoVacio();
+    nuevo.destinos[nombre] = {
+      ultimoExitoso: r.estado === 'ok' ? hoy : anterior.ultimoExitoso,
+      ultimoIntento: hoy,
+      ultimoResultado: r.estado,
+      detalle: r.detalle,
+    };
+  }
+  return nuevo;
+}
+
+function guardarEstado(dirLocal: string, estado: EstadoBackup): void {
+  fs.writeFileSync(path.join(dirLocal, NOMBRE_ARCHIVO_ESTADO), JSON.stringify(estado, null, 2), 'utf-8');
 }
 
 // ---------------------------------------------------------------------------
@@ -418,9 +532,10 @@ async function main(): Promise<void> {
   const archivosDeHoy = [rutaDump, rutaSaldos, rutaFichas, rutaClientes, rutaCaja].filter((f) => fs.existsSync(f));
 
   // 3) Destinos.
+  const dirPendrive = await resolverDirPendrive();
   const resultados: ResultadoDestino[] = [
     { nombre: 'LOCAL', estado: resultadoDump.ok && csvsOk ? 'ok' : 'error' },
-    copiarADestino('PENDRIVE', process.env.BACKUP_DIR_PENDRIVE, archivosDeHoy),
+    copiarADestino('PENDRIVE', dirPendrive, archivosDeHoy),
     copiarADestino('DRIVE', process.env.BACKUP_DIR_DRIVE, archivosDeHoy),
   ];
 
@@ -430,10 +545,16 @@ async function main(): Promise<void> {
     else log('WARNING', `Destino ${r.nombre}: FALLÓ — ${r.detalle}`);
   }
 
+  // 3b) Estado persistido — ver "Estado del backup" arriba: esto es lo que
+  // lee el backend para poder avisar en el frontend si hace días que no hay
+  // copia externa, en vez de que quede solo como un WARNING en este log.
+  const estadoPrevio = leerEstadoPrevio(path.join(dirLocal, NOMBRE_ARCHIVO_ESTADO));
+  guardarEstado(dirLocal, actualizarEstado(estadoPrevio, resultados, hoy));
+
   // 4) Retención — solo en destinos donde el backup de HOY quedó OK.
   const dirPorDestino: Record<string, string | undefined> = {
     LOCAL: dirLocal,
-    PENDRIVE: process.env.BACKUP_DIR_PENDRIVE,
+    PENDRIVE: dirPendrive,
     DRIVE: process.env.BACKUP_DIR_DRIVE,
   };
   for (const r of resultados) {

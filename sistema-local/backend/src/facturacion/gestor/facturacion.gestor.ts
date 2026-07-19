@@ -13,7 +13,7 @@ import {
   SinDesgloseIvaError,
 } from '../modelo/comprobante.entity';
 import { CrearFacturaDto, TipoFactura } from '../dto/crear-factura.dto';
-import { Emisor } from '../config/emisor';
+import { CertificadosArcaFaltantesError, Emisor } from '../config/emisor';
 import { ArcaProviderFactory } from '../interfaces/arca-provider.interface';
 import { ComprobantePdfProvider } from '../pdf/comprobante-pdf.provider';
 
@@ -53,6 +53,23 @@ export class FacturacionGestor {
     private readonly pdfProvider: ComprobantePdfProvider,
   ) {}
 
+  /**
+   * Resuelve el ArcaProvider para este emisor. Los certificados se leen
+   * recién acá (perezoso, ver `definirPemPerezoso` en `config/emisor.ts`):
+   * si todavía no están copiados en `certs/`, este es el único punto de todo
+   * el sistema que falla, y con un mensaje claro en vez de un 500 genérico.
+   */
+  private resolverProviderArca() {
+    try {
+      return this.crearProvider(this.emisor);
+    } catch (error) {
+      if (error instanceof CertificadosArcaFaltantesError) {
+        throw new InternalServerErrorException(error.message);
+      }
+      throw error;
+    }
+  }
+
   async emitirFactura(dto: CrearFacturaDto): Promise<Comprobante> {
     const desglose = Comprobante.calcularDesglose(dto.items);
     const detalle = Comprobante.armarDetalle(dto.items);
@@ -61,7 +78,7 @@ export class FacturacionGestor {
       dto.receptor.condicionIva,
     );
 
-    const provider = this.crearProvider(this.emisor);
+    const provider = this.resolverProviderArca();
     let resultado;
     try {
       resultado = await provider.solicitarCae({
@@ -133,7 +150,7 @@ export class FacturacionGestor {
       throw error;
     }
 
-    const provider = this.crearProvider(this.emisor);
+    const provider = this.resolverProviderArca();
     let resultado;
     try {
       resultado = await provider.solicitarNotaCredito(datosNc);

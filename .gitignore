@@ -11,6 +11,7 @@ build/
 .env.*
 !.env.example
 !.env.production.example
+!.env.produccion.example
 
 # Certificados y claves de ARCA — NUNCA se versionan
 *.crt

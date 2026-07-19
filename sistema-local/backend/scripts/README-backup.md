@@ -1,11 +1,9 @@
 # Backup y restore
 
 `scripts/backup.ts` es standalone: no depende de que el backend esté
-corriendo (conexión propia a Postgres, sin pasar por los Gestores de la app)
-ni de un docker-compose (no existe todavía en este proyecto). Corre a mano
-por ahora — la programación horaria (cron / tarea programada de Windows /
-contenedor en un futuro Compose) queda pendiente para cuando el sistema se
-despliegue en la PC del local.
+corriendo (conexión propia a Postgres, sin pasar por los Gestores de la app).
+Cuando se instala con el `.exe`, la tarea programada de Windows lo corre
+automáticamente (ver más abajo). También se puede correr a mano.
 
 ## Cómo correrlo
 
@@ -21,9 +19,39 @@ Variables de entorno relevantes (además de las `DB_*` que ya usa la app):
 | Variable | Obligatoria | Qué hace |
 |---|---|---|
 | `BACKUP_DIR_LOCAL` | **Sí** | Carpeta en esta PC. Siempre se escribe acá primero. |
-| `BACKUP_DIR_PENDRIVE` | No | Si el path no existe o el pendrive no está conectado, se salta con un WARNING — no rompe el resto. |
-| `BACKUP_DIR_DRIVE` | No | Carpeta local que sincroniza el cliente de escritorio de Google Drive (no es la API de Drive). |
+| `BACKUP_PENDRIVE_LABEL` | No | Etiqueta del volumen del pendrive de backup (ej. `BACKUP_FERRE`) — la letra de unidad se resuelve en cada corrida con `Get-Volume`, así que funciona en cualquier puerto USB sin importar qué letra le toque esa vez. Ver "Etiquetar el pendrive" en `docs/INSTALACION.md`. Si el pendrive no está conectado (o no tiene esa etiqueta), se salta con un WARNING — no rompe el resto. |
+| `BACKUP_DIR_PENDRIVE` | No | Forma vieja: ruta fija (ej. `D:\Backups`). Sigue soportada como fallback/override manual si `BACKUP_PENDRIVE_LABEL` no está o no resuelve — si las dos están seteadas, se intenta primero la etiqueta. |
+| `BACKUP_DIR_DRIVE` | No | Carpeta local que sincroniza el cliente de escritorio de Google Drive (no es la API de Drive). Requiere tenerlo instalado y con sesión iniciada — ver `docs/INSTALACION.md`. |
 | `PG_DUMP_PATH` | No | Ruta al ejecutable de `pg_dump` si no está en el `PATH` del sistema. |
+
+El instalador (`installer/ferreteria.iss`) pide `BACKUP_DIR_LOCAL` (obligatorio)
+y `BACKUP_PENDRIVE_LABEL`/`BACKUP_DIR_DRIVE` (opcionales) en una página del
+wizard y los escribe directo al `.env` — no hace falta tocar nada a mano en
+una instalación nueva. Los tres se pueden cambiar después editando el `.env`
+en la carpeta de instalación, sin reinstalar (el backend no necesita
+reiniciarse: el script de backup lee el `.env` en cada corrida, no al
+arrancar el servicio).
+
+## Tarea programada (instalación automática)
+
+El instalador `.exe` crea una tarea de Windows con **dos triggers**:
+
+1. **Diario a las 19:00** — si la PC está prendida, corre ahí.
+2. **Al inicio del sistema** (con 10 minutos de delay) — si la PC estaba
+   apagada a las 19:00, corre cuando se prende al otro día. El delay da
+   tiempo a que el servicio NSSM del backend y la base de datos arranquen
+   primero.
+
+Si la PC está apagada varios días, cada vez que se prende corre el backup
+del día (uno solo — no acumula los días que faltan, porque `backup.ts` usa
+la fecha de hoy para los nombres de archivo).
+
+La tarea se registra con `Register-ScheduledTask` (PowerShell) y tiene
+fallback a `schtasks` si PowerShell no está disponible. Se ejecuta como
+`SYSTEM` con privilegios elevados.
+
+Para verificar: `schtasks /query /tn "FerreteriaBackup"`.
+Para correr manualmente: `schtasks /run /tn "FerreteriaBackup"`.
 
 ## Qué genera
 
@@ -51,11 +79,39 @@ borra nada ahí — un fallo repetido no te puede dejar sin ninguna copia). El
 resultado de cada corrida (qué se generó, qué destino falló, cuántos archivos
 se retuvieron/borraron) queda en `BACKUP_DIR_LOCAL/backup.log`.
 
+## Que un fallo no quede silencioso: `estado-backup.json`
+
+`backup.log` es detallado pero nadie lo lee todos los días — un pendrive
+desconectado quedaba como un WARNING ahí y el script igual terminaba con
+exit 0 ("backup solo local", que no protege del escenario principal: que se
+muera el disco de la PC). Por eso, además del log, cada corrida actualiza
+`BACKUP_DIR_LOCAL/estado-backup.json` con la fecha del **último backup
+EXITOSO por destino** (LOCAL/PENDRIVE/DRIVE) — no solo del último intento.
+
+El backend expone `GET /api/backup/estado` (`BackupGestor`, en
+`src/backup/`) leyendo ese mismo archivo, y el frontend muestra un aviso
+discreto en la barra superior (`layout/backup-alerta/`) si hace más de 3
+días que no hay una copia exitosa en **ningún destino externo** (pendrive o
+Drive) — el backup local solo no cuenta para esta alerta, a propósito. No
+aparece nada si el backup externo está al día, ni si el archivo de estado
+todavía no existe con algo distinto de "nunca hubo" (primera corrida).
+
 ## RESTORE — procedimiento paso a paso
 
 **Importante: esto hay que probarlo al menos una vez antes de pasar a
 producción.** Un backup que nunca se restauró no es un backup — se prueba
 ahora, tranquilo, no el día que se necesita de verdad.
+
+**Necesitás el superusuario de Postgres, no `ferreteria_app`.** `ferreteria_app`
+es dueño de su base pero no tiene `CREATEDB` — el paso 1 de abajo (crear la
+base) tiene que hacerlo el superusuario. Si el sistema se instaló con el
+instalador `.exe` (`ferreteria.iss`) y Postgres se instaló desde cero en esa
+instalación, la contraseña del superusuario es aleatoria y quedó guardada en
+`PG_SUPERUSER_PASSWORD` dentro del `.env` de esa PC (y se mostró una sola vez
+en pantalla al terminar la instalación, para anotarla aparte). Si ese `.env`
+también se perdió, no queda con qué conectarse como superusuario — hay que
+resetear la contraseña de `postgres` a mano (requiere acceso admin a Windows
+en esa PC) antes de poder restaurar.
 
 1. Crear una base vacía (usar un nombre de prueba si estás validando el
    procedimiento, no el de producción):

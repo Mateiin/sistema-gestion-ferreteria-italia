@@ -1,0 +1,17 @@
+@if (mostrar()) {
+  <div class="barra-alerta-backup">
+    <div class="barra-alerta-backup-contenido banner banner-advertencia">
+      @if (dias() === null) {
+        <span>
+          Todavía no se hizo ninguna copia de seguridad externa (pendrive o Google Drive).
+          Revisá la configuración del backup.
+        </span>
+      } @else {
+        <span>
+          Hace {{ dias() }} día{{ dias() === 1 ? '' : 's' }} que no se hace copia de seguridad
+          externa (pendrive o Google Drive). Revisá que esté conectado.
+        </span>
+      }
+    </div>
+  </div>
+}
