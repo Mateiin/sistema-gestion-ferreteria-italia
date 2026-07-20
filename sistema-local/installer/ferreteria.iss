@@ -13,8 +13,9 @@
 ;      Node.js se instala en el sistema si no estaba (descarga el .msi de
 ;      nodejs.org en runtime -- ver AsegurarNode() en [Code]).
 ;   4. Genera el .env desde una plantilla con esa contrasena + los datos del
-;      emisor (los pide por wizard, no van hardcodeados en este script).
-;      ARCA queda en homologacion -- el salto a produccion es aparte, a mano.
+;      emisor (precargados con los reales, el wizard los muestra pero no hace
+;      falta tocarlos). ARCA queda en PRODUCCION. Los certificados .crt/.key
+;      se copian a mano despues en C:\Ferreteria\certs\ -- ver LEEME.txt.
 ;   5. Registra el backend como servicio de Windows (NSSM): arranque
 ;      automatico + reinicio si se cae.
 ;   6. Crea la tarea programada del backup (PowerShell, diaria 19:00 + al
@@ -254,17 +255,21 @@ begin
 
   PaginaEmisor := CreateInputQueryPage(wpSelectDir,
     'Datos del emisor', 'Datos fiscales de la ferreteria',
-    'Estos datos van en la factura impresa. Se pueden corregir despues a ' +
-    'mano editando el archivo .env en la carpeta de instalacion. El CUIT ' +
-    'de esta etapa es el de HOMOLOGACION (de pruebas) -- el CUIT real de ' +
-    'la empresa se carga recien en el salto a produccion, aparte.');
+    'Estos datos van en la factura impresa. Ya estan precargados con los ' +
+    'datos reales de la empresa. Si hace falta corregir algo, se puede ' +
+    'editar a mano despues en el archivo .env.');
   PaginaEmisor.Add('Razon social:', False);
-  PaginaEmisor.Add('CUIT (homologacion, sin guiones):', False);
+  PaginaEmisor.Values[0] := 'REFRIGERACION DIMUNDO SOCIEDAD POR ACCIONES SIMPLIFICADA';
+  PaginaEmisor.Add('CUIT (sin guiones):', False);
+  PaginaEmisor.Values[1] := '30719116945';
   PaginaEmisor.Add('Domicilio comercial:', False);
-  PaginaEmisor.Add('Ingresos Brutos:', False);
+  PaginaEmisor.Values[2] := 'Presidente Arturo Humberto Illia 492 - Bell Ville, Córdoba';
+  PaginaEmisor.Add('Ingresos Brutos (numero):', False);
+  PaginaEmisor.Values[3] := '289244026';
   PaginaEmisor.Add('Inicio de actividades (DD/MM/AAAA):', False);
-  PaginaEmisor.Add('Punto de venta (homologacion = 1):', False);
-  PaginaEmisor.Values[5] := '1';
+  PaginaEmisor.Values[4] := '03/09/2025';
+  PaginaEmisor.Add('Punto de venta ARCA:', False);
+  PaginaEmisor.Values[5] := '2';
 
   // El destino LOCAL es obligatorio (siempre se escribe primero, ver
   // backup.ts); pendrive y Drive son opcionales -- si quedan vacios el
