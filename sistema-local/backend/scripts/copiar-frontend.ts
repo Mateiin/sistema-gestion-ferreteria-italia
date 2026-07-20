@@ -22,6 +22,10 @@ if (!existsSync(origen)) {
 
 rmSync(destino, { recursive: true, force: true });
 mkdirSync(destino, { recursive: true });
-cpSync(origen, destino, { recursive: true });
+// cpSync copia la carpeta origen DENTRO del destino si existe. Leemos el
+// contenido explicitamente para copiar solo los archivos:
+for (const entry of readdirSync(origen)) {
+  cpSync(join(origen, entry), join(destino, entry), { recursive: true });
+}
 
 console.log(`Frontend copiado a "${destino}".`);

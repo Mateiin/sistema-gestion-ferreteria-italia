@@ -9,8 +9,9 @@
 ;      desatendido (vendor/postgresql-installer.exe).
 ;   2. Crea un usuario y una base PROPIOS de la app, con contrasena
 ;      ALEATORIA generada en el momento -- nunca una fija en el .exe.
-;   3. Copia la app a C:\Ferreteria (backend compilado + frontend + Node
-;      embebido -- ver TAREA 1, no exige instalar Node aparte).
+;   3. Copia la app a C:\Ferreteria (backend compilado + frontend).
+;      Node.js se instala en el sistema si no estaba (descarga el .msi de
+;      nodejs.org en runtime -- ver AsegurarNode() en [Code]).
 ;   4. Genera el .env desde una plantilla con esa contrasena + los datos del
 ;      emisor (los pide por wizard, no van hardcodeados en este script).
 ;      ARCA queda en homologacion -- el salto a produccion es aparte, a mano.
@@ -49,9 +50,8 @@
 ; iterando el wizard sin querer bajar Postgres todavia), comenta la linea
 ; correspondiente a mano -- a propósito no hay una forma de saltearlos por
 ; parametro, para que no quede un hueco permanente.
-#if !FileExists("vendor\node\node.exe")
-  #error "Falta vendor\node\node.exe -- ver installer\vendor\README.md (Node.js embebido)."
-#endif
+; NOTA: Node.js ya no va en vendor/ -- se descarga e instala en runtime
+; (ver AsegurarNode() en [Code]).
 #if !FileExists("vendor\postgresql-installer.exe")
   #error "Falta vendor\postgresql-installer.exe -- ver installer\vendor\README.md (instalador de PostgreSQL)."
 #endif
@@ -100,9 +100,6 @@ UninstallDisplayIcon={app}\app.ico
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 
 [Files]
-; --- Node embebido (TAREA 1): node.exe + npm + su propio node_modules ---
-Source: "vendor\node\*"; DestDir: "{app}\node"; Flags: recursesubdirs skipifsourcedoesntexist
-
 ; --- Backend compilado + frontend ya copiado a public/ (ver build:prod) ---
 Source: "..\backend\dist\*"; DestDir: "{app}\dist"; Flags: recursesubdirs skipifsourcedoesntexist
 Source: "..\backend\public\*"; DestDir: "{app}\public"; Flags: recursesubdirs skipifsourcedoesntexist
@@ -333,6 +330,32 @@ begin
   end;
 end;
 
+// ---------- Node.js: verificar que esta instalado ----------
+// Desde v12, el instalador YA NO embebe Node.js ni lo descarga. Si no esta
+// en el sistema, avisa y da la URL para descargarlo manualmente -- asi
+// evitamos fragilidad de descarga dentro del instalador (.msi de ~40MB).
+// Se evaluo descargar con WinHttpRequest + ADODB.Stream y se descarto
+// porque ciertos sistemas (Windows Server Core, instalaciones minimas)
+// no tienen esos COM objects disponibles en el contexto de Inno Setup.
+
+function AsegurarNode(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := True;
+  if Exec('cmd.exe', '/C node --version', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0) then
+    Exit;
+
+  MsgBox('Node.js no esta instalado en esta PC.' + #13#10#13#10 +
+    'El sistema Ferreteria necesita Node.js para funcionar.' + #13#10#13#10 +
+    '1) Descarga el instalador desde https://nodejs.org (version 22 LTS o superior).' + #13#10 +
+    '2) Ejecuta el .msi y completa la instalacion.' + #13#10 +
+    '3) Vuelve a ejecutar este instalador de la Ferreteria.' + #13#10#13#10 +
+    'La instalacion de la Ferreteria no puede continuar sin Node.js.',
+    mbCriticalError, MB_OK);
+  Result := False;
+end;
+
 // ---------- Postgres: instalar (si hace falta) + crear base/usuario ----------
 
 function InstalarPostgresDesatendido(): Boolean;
@@ -537,6 +560,15 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
+    WizardForm.StatusLabel.Caption := 'Verificando Node.js...';
+    if not AsegurarNode() then
+    begin
+      MsgBox('No se pudo instalar Node.js. Descargalo a mano desde https://nodejs.org ' +
+        'y ejecuta el instalador .msi, despues reinstala el sistema de la ferreteria.',
+        mbCriticalError, MB_OK);
+      Exit;
+    end;
+
     WizardForm.StatusLabel.Caption := 'Preparando PostgreSQL y la base de datos...';
     if not PrepararPostgres() then
     begin

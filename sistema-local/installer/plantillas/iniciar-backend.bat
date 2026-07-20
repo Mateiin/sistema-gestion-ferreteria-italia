@@ -1,7 +1,10 @@
 @echo off
-REM Version INSTALADA (usa el node.exe embebido, no exige Node en el
-REM sistema -- ver TAREA 1). La version del repo, para instalacion manual
-REM (docs/INSTALACION.md, anexo), usa el "node" del PATH del sistema en vez
-REM de esta ruta relativa.
+REM Version INSTALADA -- intenta usar node del PATH (lo instala el propio
+REM instalador si no estaba). Fallback a node embebido por si existe.
 cd /d "%~dp0"
-"%~dp0node\node.exe" "%~dp0dist\main.js"
+where node >nul 2>nul
+if %errorlevel% equ 0 (
+    node "%~dp0dist\main.js"
+) else (
+    "%~dp0node\node.exe" "%~dp0dist\main.js"
+)
