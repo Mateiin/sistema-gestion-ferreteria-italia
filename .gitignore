@@ -32,6 +32,12 @@ backups/
 
 # PDFs de prueba (probar:pdf) — no son parte del repo
 comprobante-prueba.pdf
+*.pdf
+
+# Archivos basura de prueba/diagnóstico
+salida-*
+error-*
+probar-instalador.md
 
 # Instalador (Inno Setup, ver sistema-local/installer/): el .exe compilado y
 # los binarios de terceros que hay que poner en vendor/ antes de compilar

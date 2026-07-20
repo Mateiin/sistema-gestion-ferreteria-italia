@@ -88,5 +88,15 @@ export const routes: Routes = [
       },
     ],
   },
+  {
+    path: 'backup',
+    children: [
+      {
+        path: '',
+        loadComponent: () =>
+          import('./features/backup/backup-config/backup-config').then((m) => m.BackupConfig),
+      },
+    ],
+  },
   { path: '**', redirectTo: 'ventas' },
 ];

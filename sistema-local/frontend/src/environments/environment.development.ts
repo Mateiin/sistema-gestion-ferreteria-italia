@@ -2,6 +2,6 @@
 // backend en el suyo (3000, con CORS habilitado — ver main.ts). Todas las
 // rutas de la API viven bajo /api (app.setGlobalPrefix('api')).
 export const environment = {
-  apiBaseUrl: 'http://localhost:3000/api',
+  apiBaseUrl: 'http://localhost:3001/api',
 };
 

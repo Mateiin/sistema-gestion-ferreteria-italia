@@ -225,6 +225,18 @@ tr.fila-clic:hover {
   background: #f6e3e1;
   color: var(--color-peligro);
 }
+.badge-exito {
+  background: #e2f4e9;
+  color: var(--color-exito);
+}
+.badge-error {
+  background: #fbeae8;
+  color: var(--color-peligro);
+}
+.badge-advertencia {
+  background: #fdf3e2;
+  color: var(--color-advertencia);
+}
 
 /* Avisos */
 .banner {
@@ -275,6 +287,12 @@ tr.fila-clic:hover {
 .texto-tenue {
   color: var(--color-texto-tenue);
   font-size: 0.9rem;
+}
+.texto-exito {
+  color: var(--color-exito);
+}
+.texto-error {
+  color: var(--color-peligro);
 }
 
 /* Layout reusado en las pantallas de listado (Clientes, Cuentas por cobrar) */

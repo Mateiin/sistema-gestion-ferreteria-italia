@@ -1,0 +1,176 @@
+<div class="cabecera-lista">
+  <h1>Backups — Configuración</h1>
+</div>
+
+@if (errorEjecucion()) {
+  <p class="banner banner-error">{{ errorEjecucion() }}</p>
+}
+
+@if (ejecucionReciente(); as e) {
+  <div class="tarjeta">
+    <h2>Última ejecución</h2>
+    <p class="total-ficha" [class.texto-exito]="e.exitoGlobal" [class.texto-error]="!e.exitoGlobal">
+      {{ e.exitoGlobal ? 'Backup completado exitosamente' : 'El backup tuvo errores' }}
+    </p>
+    <p class="texto-tenue">{{ e.fechaInicio | date: 'dd/MM/yyyy HH:mm' }}</p>
+    @if (e.bytesDump !== null) {
+      <p>Dump: {{ e.bytesDump / 1024 | number: '1.1-1' }} KB</p>
+    }
+    <div class="fila-formulario">
+      <span class="badge" [class.badge-exito]="e.exitoLocal" [class.badge-error]="!e.exitoLocal">
+        Local: {{ e.exitoLocal ? 'OK' : 'Error' }}
+      </span>
+      <span class="badge"
+        [class.badge-exito]="e.exitoPendrive"
+        [class.badge-error]="!e.exitoPendrive && !e.omitidoPendrive"
+        [class.badge-advertencia]="e.omitidoPendrive">
+        Pendrive: {{ e.omitidoPendrive ? 'Omitido' : (e.exitoPendrive ? 'OK' : 'Error') }}
+      </span>
+      <span class="badge"
+        [class.badge-exito]="e.exitoDrive"
+        [class.badge-error]="!e.exitoDrive && !e.omitidoDrive"
+        [class.badge-advertencia]="e.omitidoDrive">
+        Drive: {{ e.omitidoDrive ? 'Omitido' : (e.exitoDrive ? 'OK' : 'Error') }}
+      </span>
+    </div>
+  </div>
+}
+
+<!-- CONFIG -->
+<div class="tarjeta">
+  <h2>Rutas de destino</h2>
+  <form [formGroup]="configForm" (ngSubmit)="guardarConfig()">
+    @if (errorConfig()) {
+      <p class="banner banner-error">{{ errorConfig() }}</p>
+    }
+    @if (exitoConfig()) {
+      <p class="banner banner-exito">{{ exitoConfig() }}</p>
+    }
+
+    <div class="campo">
+      <label for="dirLocal">BACKUP_DIR_LOCAL *</label>
+      <input id="dirLocal" type="text" formControlName="BACKUP_DIR_LOCAL" placeholder="C:\Ferreteria\backups" />
+      <span class="ayuda">Requerido. Carpeta local donde se guardan los backups.</span>
+      @if (configForm.controls.BACKUP_DIR_LOCAL.invalid && configForm.controls.BACKUP_DIR_LOCAL.touched) {
+        <span class="campo-error">Este campo es obligatorio.</span>
+      }
+    </div>
+
+    <div class="campo">
+      <label for="dirPendrive">BACKUP_DIR_PENDRIVE</label>
+      <input id="dirPendrive" type="text" formControlName="BACKUP_DIR_PENDRIVE" placeholder="D:\FerreteriaBackups" />
+      <span class="ayuda">Opcional. Ruta al pendrive o disco externo.</span>
+    </div>
+
+    <div class="campo">
+      <label for="dirDrive">BACKUP_DIR_DRIVE</label>
+      <input id="dirDrive" type="text" formControlName="BACKUP_DIR_DRIVE" placeholder="C:\Users\...\Google Drive\FerreteriaBackups" />
+      <span class="ayuda">Opcional. Carpeta sincronizada con Google Drive, Dropbox, etc.</span>
+    </div>
+
+    <div class="acciones-formulario">
+      <button type="submit" class="btn btn-primario" [disabled]="guardando()">
+        @if (guardando()) { <span class="spinner"></span> }
+        Guardar configuración
+      </button>
+    </div>
+  </form>
+</div>
+
+<!-- EJECUTAR -->
+<div class="tarjeta">
+  <h2>Ejecutar backup ahora</h2>
+  <p class="texto-tenue">Hace una copia de seguridad completa ahora mismo. Puede tardar unos segundos.</p>
+
+  <button type="button" class="btn btn-primario" (click)="ejecutarBackup()" [disabled]="ejecutando()">
+    @if (ejecutando()) { <span class="spinner"></span> }
+    {{ ejecutando() ? 'Ejecutando…' : 'Ejecutar backup ahora' }}
+  </button>
+</div>
+
+<!-- HISTORIAL -->
+<div class="tarjeta">
+  <h2>Historial de ejecuciones</h2>
+
+  @if (errorHistorial()) {
+    <p class="banner banner-error">{{ errorHistorial() }}</p>
+  }
+
+  @if (cargandoHistorial()) {
+    <p><span class="spinner"></span> Cargando historial…</p>
+  } @else if (historial().length === 0) {
+    <p class="texto-tenue">Todavía no hay ejecuciones registradas.</p>
+  } @else {
+    <table>
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>Estado</th>
+          <th>Dump</th>
+          <th>Local</th>
+          <th>Pendrive</th>
+          <th>Drive</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (e of historial(); track e.id) {
+          <tr class="fila-clic" (click)="toggleExpandir(e.id)">
+            <td>{{ e.fechaInicio | date: 'dd/MM/yyyy HH:mm' }}</td>
+            <td>
+              <span class="badge" [class.badge-exito]="e.exitoGlobal" [class.badge-error]="!e.exitoGlobal">
+                {{ e.exitoGlobal ? 'OK' : 'Error' }}
+              </span>
+            </td>
+            <td>{{ e.bytesDump ? (e.bytesDump / 1024 | number: '1.1-1') + ' KB' : '—' }}</td>
+            <td>
+              <span class="badge" [class.badge-exito]="e.exitoLocal" [class.badge-error]="!e.exitoLocal">
+                {{ e.exitoLocal ? 'OK' : 'Error' }}
+              </span>
+            </td>
+            <td>
+              <span class="badge"
+                [class.badge-exito]="e.exitoPendrive"
+                [class.badge-error]="!e.exitoPendrive && !e.omitidoPendrive"
+                [class.badge-advertencia]="e.omitidoPendrive">
+                {{ e.omitidoPendrive ? '—' : (e.exitoPendrive ? 'OK' : 'Err') }}
+              </span>
+            </td>
+            <td>
+              <span class="badge"
+                [class.badge-exito]="e.exitoDrive"
+                [class.badge-error]="!e.exitoDrive && !e.omitidoDrive"
+                [class.badge-advertencia]="e.omitidoDrive">
+                {{ e.omitidoDrive ? '—' : (e.exitoDrive ? 'OK' : 'Err') }}
+              </span>
+            </td>
+            <td>
+              <button type="button" class="btn btn-chico" (click)="$event.stopPropagation(); toggleExpandir(e.id)">
+                {{ ejecucionExpandida() === e.id ? 'Ocultar' : 'Detalle' }}
+              </button>
+            </td>
+          </tr>
+          @if (ejecucionExpandida() === e.id) {
+            <tr>
+              <td colspan="7" style="background: var(--color-fondo); white-space: pre-wrap; font-family: monospace; font-size: 0.8rem; max-width: 0;">
+                @if (e.detalleLocal) {
+                  <strong>Local:</strong> {{ e.detalleLocal }}<br>
+                }
+                @if (e.detallePendrive) {
+                  <strong>Pendrive:</strong> {{ e.detallePendrive }}<br>
+                }
+                @if (e.detalleDrive) {
+                  <strong>Drive:</strong> {{ e.detalleDrive }}<br>
+                }
+                @if (e.log) {
+                  <strong>Log:</strong><br>
+                  <pre style="margin: 0.25rem 0 0; white-space: pre-wrap; max-height: 300px; overflow-y: auto;">{{ e.log }}</pre>
+                }
+              </td>
+            </tr>
+          }
+        }
+      </tbody>
+    </table>
+  }
+</div>

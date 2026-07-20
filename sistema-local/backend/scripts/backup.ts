@@ -27,7 +27,6 @@ import { Client, types } from 'pg';
 const execFileAsync = promisify(execFile);
 
 const RETENCION_DIAS = 30;
-const MARCADOR_DUMP_OK = '-- PostgreSQL database dump complete';
 
 // DATE de Postgres sin conversión de huso horario: por default node-postgres
 // lo devuelve como `Date` a medianoche UTC, y convertirlo con getters locales
@@ -164,13 +163,13 @@ async function generarDump(
   const bufferFinal = Buffer.alloc(Math.min(500, tamanioBytes));
   fs.readSync(fd, bufferFinal, 0, bufferFinal.length, tamanioBytes - bufferFinal.length);
   fs.closeSync(fd);
-  if (!bufferFinal.toString('utf-8').includes(MARCADOR_DUMP_OK)) {
-    log('ERROR', 'El dump no tiene el marcador de finalización de pg_dump — puede haber quedado truncado');
-    return { ok: false, tamanioBytes };
-  }
+    if (!bufferFinal.toString('utf-8').includes('-- PostgreSQL database dump complete')) {
+      log('ERROR', 'El dump no tiene el marcador de finalización de pg_dump — puede haber quedado truncado');
+      return { ok: false, tamanioBytes };
+    }
 
-  log('INFO', `Dump verificado OK (${(tamanioBytes / 1024).toFixed(1)} KB)`);
-  return { ok: true, tamanioBytes };
+    log('INFO', `Dump verificado OK (${(tamanioBytes / 1024).toFixed(1)} KB)`);
+    return { ok: true, tamanioBytes };
 }
 
 // ---------------------------------------------------------------------------
@@ -458,35 +457,17 @@ function guardarEstado(dirLocal: string, estado: EstadoBackup): void {
 }
 
 // ---------------------------------------------------------------------------
-// Retención: 30 días, y SOLO en un destino donde el backup de hoy salió bien
-// (si hoy falló, no se borra nada — un fallo repetido no te puede dejar sin
-// ninguna copia).
-// ---------------------------------------------------------------------------
-
-const PATRON_ARCHIVO_BACKUP = /^(dump|saldos|fichas_abiertas|clientes|caja)_(\d{4}-\d{2}-\d{2})\.(sql|csv)$/;
-
-function aplicarRetencion(dirDestino: string, hoy: string): number {
-  const limite = new Date(hoy);
-  limite.setDate(limite.getDate() - RETENCION_DIAS);
-
-  let borrados = 0;
-  for (const nombreArchivo of fs.readdirSync(dirDestino)) {
-    const match = nombreArchivo.match(PATRON_ARCHIVO_BACKUP);
-    if (!match) continue;
-    if (new Date(match[2]) < limite) {
-      fs.unlinkSync(path.join(dirDestino, nombreArchivo));
-      borrados++;
-    }
-  }
-  return borrados;
-}
-
-// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
-  const hoy = fechaHoy();
+  const hoy = new Date();
+  const hoyStr = fechaHoy();
+  const hh = String(hoy.getHours()).padStart(2, '0');
+  const mm = String(hoy.getMinutes()).padStart(2, '0');
+  const ss = String(hoy.getSeconds()).padStart(2, '0');
+  const sufijoFechaHora = `${hoyStr}_${hh}.${mm}.${ss}`;
+  const carpetaEjecucion = `backup_${sufijoFechaHora}`;
 
   const dirLocal = process.env.BACKUP_DIR_LOCAL;
   if (!dirLocal) {
@@ -496,19 +477,22 @@ async function main(): Promise<void> {
   }
   fs.mkdirSync(dirLocal, { recursive: true });
 
-  log('INFO', `Backup del ${hoy} — iniciando (BACKUP_DIR_LOCAL=${dirLocal})`);
+  const dirDestinoLocal = path.join(dirLocal, carpetaEjecucion);
+  fs.mkdirSync(dirDestinoLocal, { recursive: true });
+
+  log('INFO', `Backup del ${hoyStr} — iniciando (carpeta: ${carpetaEjecucion})`);
 
   const config = leerConfigDb();
 
   // 1) Dump completo.
-  const rutaDump = path.join(dirLocal, `dump_${hoy}.sql`);
+  const rutaDump = path.join(dirDestinoLocal, `dump_${hoyStr}.sql`);
   const resultadoDump = await generarDump(config, rutaDump);
 
   // 2) CSVs.
-  const rutaSaldos = path.join(dirLocal, `saldos_${hoy}.csv`);
-  const rutaFichas = path.join(dirLocal, `fichas_abiertas_${hoy}.csv`);
-  const rutaClientes = path.join(dirLocal, `clientes_${hoy}.csv`);
-  const rutaCaja = path.join(dirLocal, `caja_${hoy}.csv`);
+  const rutaSaldos = path.join(dirDestinoLocal, `saldos_${hoyStr}.csv`);
+  const rutaFichas = path.join(dirDestinoLocal, `fichas_abiertas_${hoyStr}.csv`);
+  const rutaClientes = path.join(dirDestinoLocal, `clientes_${hoyStr}.csv`);
+  const rutaCaja = path.join(dirDestinoLocal, `caja_${hoyStr}.csv`);
 
   let csvsOk = true;
   const client = new Client(config);
@@ -529,14 +513,27 @@ async function main(): Promise<void> {
     await client.end();
   }
 
-  const archivosDeHoy = [rutaDump, rutaSaldos, rutaFichas, rutaClientes, rutaCaja].filter((f) => fs.existsSync(f));
-
-  // 3) Destinos.
+  // 3) Destinos — copiar la carpeta entera.
   const dirPendrive = await resolverDirPendrive();
+  const copiarCarpeta = (nombre: string, dirDestino: string | undefined): ResultadoDestino => {
+    if (!dirDestino) return { nombre, estado: 'omitido', detalle: 'no configurado' };
+    try {
+      fs.mkdirSync(dirDestino, { recursive: true });
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      return { nombre, estado: 'omitido', detalle: code === 'ENOENT' ? `no está montado (${dirDestino})` : (err as Error).message };
+    }
+    try {
+      fs.cpSync(dirDestinoLocal, path.join(dirDestino, carpetaEjecucion), { recursive: true });
+      return { nombre, estado: 'ok' };
+    } catch (err) {
+      return { nombre, estado: 'error', detalle: (err as Error).message };
+    }
+  };
   const resultados: ResultadoDestino[] = [
     { nombre: 'LOCAL', estado: resultadoDump.ok && csvsOk ? 'ok' : 'error' },
-    copiarADestino('PENDRIVE', dirPendrive, archivosDeHoy),
-    copiarADestino('DRIVE', process.env.BACKUP_DIR_DRIVE, archivosDeHoy),
+    copiarCarpeta('PENDRIVE', dirPendrive),
+    copiarCarpeta('DRIVE', process.env.BACKUP_DIR_DRIVE),
   ];
 
   for (const r of resultados) {
@@ -557,13 +554,28 @@ async function main(): Promise<void> {
     PENDRIVE: dirPendrive,
     DRIVE: process.env.BACKUP_DIR_DRIVE,
   };
+  const patronCarpeta = /^backup_(\d{4}-\d{2}-\d{2})_\d{2}\.\d{2}\.\d{2}$/;
   for (const r of resultados) {
     if (r.estado !== 'ok') continue;
     const dir = dirPorDestino[r.nombre];
     if (!dir) continue;
-    const borrados = aplicarRetencion(dir, hoy);
+    const limite = new Date(hoyStr);
+    limite.setDate(limite.getDate() - RETENCION_DIAS);
+    let borrados = 0;
+    try {
+      for (const entrada of fs.readdirSync(dir)) {
+        const match = entrada.match(patronCarpeta);
+        if (!match) continue;
+        if (new Date(match[1]) < limite) {
+          fs.rmSync(path.join(dir, entrada), { recursive: true, force: true });
+          borrados++;
+        }
+      }
+    } catch {
+      // si no se puede leer el dir, no es crítico
+    }
     if (borrados > 0) {
-      log('INFO', `Retención en ${r.nombre}: ${borrados} archivo(s) de más de ${RETENCION_DIAS} días borrados`);
+      log('INFO', `Retención en ${r.nombre}: ${borrados} carpeta(s) de más de ${RETENCION_DIAS} días borradas`);
     }
   }
 
