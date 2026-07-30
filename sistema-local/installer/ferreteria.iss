@@ -122,6 +122,7 @@ Source: "..\backend\.env.produccion.example"; DestDir: "{app}"; Flags: skipifsou
 ; --- Launchers de la version INSTALADA (usan el Node embebido, ver TAREA 1) ---
 Source: "plantillas\iniciar-backend.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "plantillas\ejecutar-backup.bat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "plantillas\ejecutar-backup.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "plantillas\certs-leeme.txt"; DestDir: "{app}\certs"; DestName: "LEEME.txt"; Flags: ignoreversion
 ; Logo del emisor: a diferencia de los certificados de ARCA, NO es un
 ; secreto (es el mismo logo que va en la cartelería del local), así que sí
