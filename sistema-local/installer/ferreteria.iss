@@ -4,14 +4,14 @@
 ; panorama completo (Fase 1 empaquetado / Fase 2 instalacion / Fase 3 ARCA
 ; produccion, pendiente).
 ;
-; Que hace, en orden (ver [Code] mas abajo para el detalle real):
+; Lo que hace en una INSTALACION NUEVA (ver [Code] mas abajo para el detalle real):
 ;   1. Detecta si Postgres ya esta instalado (registro). Si no, lo instala
 ;      desatendido (vendor/postgresql-installer.exe).
 ;   2. Crea un usuario y una base PROPIOS de la app, con contrasena
 ;      ALEATORIA generada en el momento -- nunca una fija en el .exe.
 ;   3. Copia la app a C:\Ferreteria (backend compilado + frontend).
-;      Node.js se instala en el sistema si no estaba (descarga el .msi de
-;      nodejs.org en runtime -- ver AsegurarNode() en [Code]).
+;      Node.js portable embebido en {app}\node\ (no necesita estar en el
+;      PATH del sistema -- ver AsegurarNode() en [Code]).
 ;   4. Genera el .env desde una plantilla con esa contrasena + los datos del
 ;      emisor (precargados con los reales, el wizard los muestra pero no hace
 ;      falta tocarlos). ARCA queda en PRODUCCION. Los certificados .crt/.key
@@ -26,6 +26,10 @@
 ;   8. El desinstalador saca servicio + tarea + archivos. NUNCA la base de
 ;      datos ni la carpeta de backups -- los datos del negocio no se borran
 ;      por un desinstalador.
+;
+; En una ACTUALIZACION (cuando ya existe C:\Ferreteria\.env), solo se
+; reemplazan los archivos de la app y la tarea programada del backup. No se
+; toca el .env, la base de datos ni el servicio NSSM.
 ;
 ; Certificados de ARCA: el instalador NO los incluye ni los pide (ver TAREA 4
 ; / seguridad -- la .key de produccion es la llave fiscal de la empresa). Se
@@ -51,8 +55,8 @@
 ; iterando el wizard sin querer bajar Postgres todavia), comenta la linea
 ; correspondiente a mano -- a propósito no hay una forma de saltearlos por
 ; parametro, para que no quede un hueco permanente.
-; NOTA: Node.js ya no va en vendor/ -- se descarga e instala en runtime
-; (ver AsegurarNode() en [Code]).
+; NOTA: Node.js va embebido en vendor/node/ y se copia a {app}\node\
+; (iniciar-backend.bat y ejecutar-backup.bat lo usan como fallback).
 #if !FileExists("vendor\postgresql-installer.exe")
   #error "Falta vendor\postgresql-installer.exe -- ver installer\vendor\README.md (instalador de PostgreSQL)."
 #endif
@@ -137,6 +141,16 @@ Source: "plantillas\env.template"; DestDir: "{tmp}"; Flags: dontcopy
 Source: "abrir-ferreteria.vbs"; DestDir: "{app}"; Flags: ignoreversion
 Source: "app.ico"; DestDir: "{app}"; Flags: ignoreversion
 
+; --- Node.js embebido (fallback del servicio y del backup) ---
+; No necesita estar en el PATH del sistema: iniciar-backend.bat y
+; ejecutar-backup.bat lo usan como fallback si "node" no se encuentra.
+Source: "vendor\node\node.exe"; DestDir: "{app}\node"; Flags: ignoreversion
+Source: "vendor\node\node_modules\*"; DestDir: "{app}\node\node_modules"; Flags: recursesubdirs ignoreversion
+Source: "vendor\node\npm.cmd"; DestDir: "{app}\node"; Flags: ignoreversion
+Source: "vendor\node\npm.ps1"; DestDir: "{app}\node"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "vendor\node\npx.cmd"; DestDir: "{app}\node"; Flags: ignoreversion
+Source: "vendor\node\npm"; DestDir: "{app}\node"; Flags: ignoreversion skipifsourcedoesntexist
+
 ; --- Herramientas embebidas para el propio instalador (no quedan visibles al titular) ---
 Source: "vendor\nssm.exe"; DestDir: "{app}\_instalador"; Flags: skipifsourcedoesntexist
 Source: "plantillas\registrar-tarea-backup.ps1"; DestDir: "{app}\_instalador"; Flags: ignoreversion
@@ -166,6 +180,7 @@ var
   PaginaEmisor: TInputQueryWizardPage;
   PaginaBackup: TInputQueryWizardPage;
   PostgresYaEstaba: Boolean;
+  EsActualizacion: Boolean;
   PasswordSuperusuario: String;
   NombreSuperusuario: String;
   PasswordApp: String;
@@ -238,7 +253,16 @@ end;
 
 procedure InitializeWizard();
 begin
+  EsActualizacion := FileExists('C:\Ferreteria\.env');
   PostgresYaEstaba := PostgresYaInstalado();
+
+  if EsActualizacion then
+  begin
+    // En actualizacion no se muestran las paginas del wizard: solo se
+    // reemplazan los archivos de la app (lo hace Inno automaticamente por
+    // [Files]) y se actualiza la tarea programada del backup.
+    Exit;
+  end;
 
   // Solo se muestra si Postgres YA estaba instalado: necesitamos su
   // contrasena de superusuario para poder crear la base de la app (si lo
@@ -302,6 +326,11 @@ end;
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   Result := False;
+  if EsActualizacion then
+  begin
+    Result := True;
+    Exit;
+  end;
   if (PaginaPostgresExistente <> nil) and (PageID = PaginaPostgresExistente.ID) then
     Result := not PostgresYaEstaba;
 end;
@@ -335,13 +364,10 @@ begin
   end;
 end;
 
-// ---------- Node.js: verificar que esta instalado ----------
-// Desde v12, el instalador YA NO embebe Node.js ni lo descarga. Si no esta
-// en el sistema, avisa y da la URL para descargarlo manualmente -- asi
-// evitamos fragilidad de descarga dentro del instalador (.msi de ~40MB).
-// Se evaluo descargar con WinHttpRequest + ADODB.Stream y se descarto
-// porque ciertos sistemas (Windows Server Core, instalaciones minimas)
-// no tienen esos COM objects disponibles en el contexto de Inno Setup.
+// ---------- Node.js: verificar que esta en el PATH ----------
+// Si Node NO esta en el PATH, solo avisa (no falla): el instalador embebe
+// un Node.js portable en {app}\node\ y los .bat del servicio/backup lo
+// usan como fallback automatico. Solo es un aviso informativo.
 
 function AsegurarNode(): Boolean;
 var
@@ -351,14 +377,12 @@ begin
   if Exec('cmd.exe', '/C node --version', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0) then
     Exit;
 
-  MsgBox('Node.js no esta instalado en esta PC.' + #13#10#13#10 +
-    'El sistema Ferreteria necesita Node.js para funcionar.' + #13#10#13#10 +
-    '1) Descarga el instalador desde https://nodejs.org (version 22 LTS o superior).' + #13#10 +
-    '2) Ejecuta el .msi y completa la instalacion.' + #13#10 +
-    '3) Vuelve a ejecutar este instalador de la Ferreteria.' + #13#10#13#10 +
-    'La instalacion de la Ferreteria no puede continuar sin Node.js.',
-    mbCriticalError, MB_OK);
-  Result := False;
+  MsgBox('Node.js no esta en el PATH del sistema.' + #13#10#13#10 +
+    'El sistema Ferreteria incluye un Node.js embebido que se usara ' +
+    'automaticamente, asi que la instalacion puede continuar.' + #13#10#13#10 +
+    'Si queres tener Node.js disponible para otros proyectos, ' +
+    'descargalo desde https://nodejs.org (version 22 LTS o superior).',
+    mbInformation, MB_OK);
 end;
 
 // ---------- Postgres: instalar (si hace falta) + crear base/usuario ----------
@@ -565,14 +589,18 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
-    WizardForm.StatusLabel.Caption := 'Verificando Node.js...';
-    if not AsegurarNode() then
+    if EsActualizacion then
     begin
-      MsgBox('No se pudo instalar Node.js. Descargalo a mano desde https://nodejs.org ' +
-        'y ejecuta el instalador .msi, despues reinstala el sistema de la ferreteria.',
-        mbCriticalError, MB_OK);
+      // En actualizacion solo se actualizan los archivos (lo hace Inno
+      // automaticamente por [Files]) y la tarea programada del backup.
+      // No se toca el .env, la base de datos ni el servicio NSSM.
+      WizardForm.StatusLabel.Caption := 'Actualizando...';
+      RegistrarTareaBackup();
       Exit;
     end;
+
+    WizardForm.StatusLabel.Caption := 'Verificando Node.js...';
+    AsegurarNode();
 
     WizardForm.StatusLabel.Caption := 'Preparando PostgreSQL y la base de datos...';
     if not PrepararPostgres() then

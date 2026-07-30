@@ -133,7 +133,7 @@ const ANCHO_COLUMNA_DATOS = 200;
  * angosto con aire en blanco al lado. El alto (90) es generoso a propósito
  * para que el ANCHO sea casi siempre el lado que termina limitando el
  * tamaño (`fit` usa el más restrictivo de los dos); si algún logo viene muy
- * apaisado y el ancho de 260 ya lo deja bajo, no hay problema, pero uno muy
+ * apaisado y el ancho de 240 ya lo deja bajo, no hay problema, pero uno muy
  * cuadrado/vertical no va a estirarse más allá de 90 de alto. */
 const ANCHO_MAXIMO_LOGO_EMISOR = 240;
 const ALTO_MAXIMO_LOGO_EMISOR = 90;
