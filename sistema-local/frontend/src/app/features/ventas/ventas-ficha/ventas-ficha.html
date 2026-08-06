@@ -164,6 +164,16 @@
             @if (guardandoLinea()) { <span class="spinner"></span> }
             Agregar línea
           </button>
+          @if (v.lineas.length > 0) {
+            <button
+              type="button"
+              class="btn btn-peligro"
+              (click)="abrirModalVaciar()"
+              title="Borra todas las líneas de la ficha (para rearmarla con el saldo que quede)"
+            >
+              Vaciar ficha
+            </button>
+          }
         </div>
       </form>
     </div>
@@ -208,6 +218,25 @@
       </table>
     }
     <p class="total-ficha">Total: $ {{ v.total | number: '1.2-2' }}</p>
+  </div>
+}
+
+@if (modalVaciarAbierto() && venta(); as v) {
+  <div class="modal-fondo" (click)="cerrarModalVaciar()">
+    <div class="modal" (click)="$event.stopPropagation()">
+      <h2>Vaciar ficha</h2>
+      <p>
+        Se van a borrar las {{ v.lineas.length }} líneas cargadas. La ficha queda vacía y
+        podés cargarla de nuevo desde cero (ej. un solo ítem con el saldo pendiente).
+      </p>
+      <div class="acciones-formulario">
+        <button type="button" class="btn btn-peligro" (click)="confirmarVaciar()" [disabled]="vaciando()">
+          @if (vaciando()) { <span class="spinner"></span> }
+          Vaciar
+        </button>
+        <button type="button" class="btn" (click)="cerrarModalVaciar()" [disabled]="vaciando()">Cancelar</button>
+      </div>
+    </div>
   </div>
 }
 

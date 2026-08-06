@@ -364,6 +364,10 @@ h1 .badge {
 
 .fila-submit-linea {
   margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
 }
 
 .opcion-radio {

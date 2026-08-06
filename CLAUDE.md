@@ -307,8 +307,9 @@ cuenta corriente real) están construidas y probadas de punta a punta.
   `GET /clientes/:id`, `PUT /clientes/:id`; `POST /ventas/abrir` (abre o
   devuelve la ficha ABIERTA del cliente), `GET /ventas/abiertas`,
   `GET /ventas/:id`, `POST /ventas/:id/lineas`,
-  `DELETE /ventas/:id/lineas/:lineaId`. Agregar/quitar líneas solo si la ficha
-  está ABIERTA (400 si no).
+  `DELETE /ventas/:id/lineas/:lineaId`, `DELETE /ventas/:id/lineas` (vacía la
+  ficha: borra TODAS sus líneas de un golpe). Agregar/quitar/vaciar líneas
+  solo si la ficha está ABIERTA (400 si no).
 - **Invariante "una ficha abierta por cliente"** reforzada en dos capas:
   `VentasGestor.abrirFicha` busca antes de crear, y además hay un índice único
   parcial en la base (`UNIQUE (clienteId) WHERE estado = 'ABIERTA'`, migración
@@ -452,7 +453,10 @@ registros). **Nada de depósito** — ese módulo de backend no existe todavía.
   `core/models/cliente.model.ts` para no acoplar el front a las entidades de
   TypeORM) se sigue usando para mostrar "Factura A/B" en el mensaje de ayuda.
   "Facturar" abre un modal simple (sin librería, `position: fixed` + overlay)
-  para elegir Contado/Cuenta corriente.
+  para elegir Contado/Cuenta corriente. "Vaciar ficha" (al lado del total,
+  solo si la ficha está ABIERTA y tiene líneas) borra todas las líneas con un
+  modal de confirmación — para el caso de cobro parcial en negro, dejar la
+  ficha vacía y cargar un único ítem con lo que reste.
 - `features/ventas/fichas-abiertas/` — `GET /ventas/abiertas`.
 - `features/cuentas/` — `cuentas-lista` (`GET /clientes/con-saldo`) y
   `cuenta-detalle` (`GET /clientes/:id/cuenta` + registrar pago).
@@ -821,6 +825,12 @@ Hecho:
       punta (curl): alta → cierre → doble cierre rechazado (409) → editar
       (alta y baja sobre el cierre) → totales recalculados correctos.
       Detalle completo en "Caja".
+- [x] **Vaciar ficha en un click** (ventas): `DELETE /ventas/:id/lineas`
+      (`VentasGestor.vaciarLineas`, solo ficha ABIERTA) + botón "Vaciar ficha"
+      en `ventas-ficha` con modal de confirmación. Sirve para el caso del
+      titular que cobra una parte en negro: borra todo lo cargado de un golpe
+      y deja un único ítem con el saldo pendiente (en vez de quitar línea por
+      línea). Compila limpio backend + frontend.
 - [x] **Backup standalone** (`sistema-local/backend/scripts/backup.ts`,
       `npm run backup`): dump completo verificado + 4 CSV (saldos, fichas
       abiertas, clientes, caja) con fecha en el nombre, a

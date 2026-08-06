@@ -63,6 +63,10 @@ export class VentasFicha {
   protected readonly comprobanteRecienEmitido = signal<Comprobante | null>(null);
   protected readonly descargandoPdf = signal(false);
 
+  // --- Vaciar ficha ---
+  protected readonly modalVaciarAbierto = signal(false);
+  protected readonly vaciando = signal(false);
+
   constructor() {
     this.buscador.valueChanges
       .pipe(debounceTime(300), distinctUntilChanged(), takeUntilDestroyed())
@@ -197,6 +201,34 @@ export class VentasFicha {
     this.ventasService.quitarLinea(actual.id, lineaId).subscribe({
       next: (venta) => this.venta.set(venta),
       error: (err) => this.error.set(extraerMensajeError(err)),
+    });
+  }
+
+  protected abrirModalVaciar(): void {
+    this.error.set(null);
+    this.modalVaciarAbierto.set(true);
+  }
+
+  protected cerrarModalVaciar(): void {
+    if (this.vaciando()) return;
+    this.modalVaciarAbierto.set(false);
+  }
+
+  protected confirmarVaciar(): void {
+    const actual = this.venta();
+    if (!actual) return;
+    this.vaciando.set(true);
+    this.error.set(null);
+    this.ventasService.vaciarLineas(actual.id).subscribe({
+      next: (venta) => {
+        this.venta.set(venta);
+        this.vaciando.set(false);
+        this.modalVaciarAbierto.set(false);
+      },
+      error: (err) => {
+        this.error.set(extraerMensajeError(err));
+        this.vaciando.set(false);
+      },
     });
   }
 

@@ -29,6 +29,10 @@ export class VentasService {
     return this.http.delete<Venta>(`/ventas/${ventaId}/lineas/${lineaId}`);
   }
 
+  vaciarLineas(ventaId: string): Observable<Venta> {
+    return this.http.delete<Venta>(`/ventas/${ventaId}/lineas`);
+  }
+
   presupuestoPdf(ventaId: string): Observable<Blob> {
     return this.http.post(
       `/ventas/${ventaId}/presupuesto`,

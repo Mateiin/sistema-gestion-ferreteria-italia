@@ -56,6 +56,13 @@ export class VentasController {
     return this.conTotal(venta);
   }
 
+  /** Vacía la ficha: borra todas sus líneas de un solo golpe (solo si está ABIERTA) */
+  @Delete(':id/lineas')
+  async vaciarLineas(@Param('id', ParseUUIDPipe) id: string) {
+    const venta = await this.ventas.vaciarLineas(id);
+    return this.conTotal(venta);
+  }
+
   /** PDF de presupuesto (no fiscal, sin CAE/QR). No cambia el estado de la ficha. */
   @Post(':id/presupuesto')
   async presupuesto(

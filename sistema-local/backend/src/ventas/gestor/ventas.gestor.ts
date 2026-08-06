@@ -105,6 +105,19 @@ export class VentasGestor {
     return this.obtener(ventaId);
   }
 
+  /**
+   * Vacía la ficha de un solo golpe: borra todas sus líneas. Sirve para el
+   * caso del titular que cobra una parte en negro, borra lo cargado y deja un
+   * ítem único con lo que resta. Misma validación que las demás operaciones
+   * de líneas: la ficha tiene que estar ABIERTA.
+   */
+  async vaciarLineas(ventaId: string): Promise<Venta> {
+    const venta = await this.obtener(ventaId);
+    this.validarAbierta(venta);
+    await this.lineas.delete({ ventaId });
+    return this.obtener(ventaId);
+  }
+
   private validarAbierta(venta: Venta): void {
     if (venta.estado !== EstadoVenta.ABIERTA) {
       throw new BadRequestException(
