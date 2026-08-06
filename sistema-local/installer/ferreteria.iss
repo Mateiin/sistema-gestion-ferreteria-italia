@@ -31,6 +31,14 @@
 ; reemplazan los archivos de la app y la tarea programada del backup. No se
 ; toca el .env, la base de datos ni el servicio NSSM.
 ;
+; Para las actualizaciones de todos los dias existe ademas un camino MUCHO mas
+; chico que este .exe: crear-actualizacion.ps1 (PC de desarrollo) arma
+; ActualizacionFerreteria.zip con solo la capa de codigo (dist/public, ~1MB, sin
+; node_modules), y en la PC del local se aplica con aplicar-actualizacion.bat
+; (se instala mas abajo en [Files]): frena el servicio, copia SOLO los archivos
+; que cambiaron (compara SHA-256) y lo levanta. Este .exe completo queda para
+; instalaciones nuevas y para cuando un update cambia dependencias (node_modules).
+;
 ; Certificados de ARCA: el instalador NO los incluye ni los pide (ver TAREA 4
 ; / seguridad -- la .key de produccion es la llave fiscal de la empresa). Se
 ; copian a mano despues, en C:\Ferreteria\certs\ -- ver el LEEME.txt que el
@@ -121,8 +129,14 @@ Source: "..\backend\.env.produccion.example"; DestDir: "{app}"; Flags: skipifsou
 
 ; --- Launchers de la version INSTALADA (usan el Node embebido, ver TAREA 1) ---
 Source: "plantillas\iniciar-backend.bat"; DestDir: "{app}"; Flags: ignoreversion
+; El backup de la tarea programada corre el script standalone directo contra
+; Postgres (scripts/backup.ts) con el Node embebido — no pasa por el API, así
+; funciona aunque el backend esté caído (ver CLAUDE.md -> "Estrategia de backup").
 Source: "plantillas\ejecutar-backup.bat"; DestDir: "{app}"; Flags: ignoreversion
-Source: "plantillas\ejecutar-backup.ps1"; DestDir: "{app}"; Flags: ignoreversion
+; Aplicador de actualizaciones: el bat que se arrastra el zip encima (ver
+; crear-actualizacion.ps1) y el ps1 con la lógica (delta por SHA-256), que se
+; instala en _instalador\ junto a registrar-tarea-backup.ps1.
+Source: "plantillas\aplicar-actualizacion.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "plantillas\certs-leeme.txt"; DestDir: "{app}\certs"; DestName: "LEEME.txt"; Flags: ignoreversion
 ; Logo del emisor: a diferencia de los certificados de ARCA, NO es un
 ; secreto (es el mismo logo que va en la cartelería del local), así que sí
@@ -155,6 +169,7 @@ Source: "vendor\node\npm"; DestDir: "{app}\node"; Flags: ignoreversion skipifsou
 ; --- Herramientas embebidas para el propio instalador (no quedan visibles al titular) ---
 Source: "vendor\nssm.exe"; DestDir: "{app}\_instalador"; Flags: skipifsourcedoesntexist
 Source: "plantillas\registrar-tarea-backup.ps1"; DestDir: "{app}\_instalador"; Flags: ignoreversion
+Source: "plantillas\aplicar-actualizacion.ps1"; DestDir: "{app}\_instalador"; Flags: ignoreversion
 
 ; postgresql-installer.exe NO se copia a {app} (no queda instalado ahi, solo
 ; se corre una vez y se descarta): "dontcopy" lo empaqueta adentro del

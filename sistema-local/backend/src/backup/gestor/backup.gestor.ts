@@ -90,6 +90,16 @@ export class BackupGestor {
     for (const f of filas) {
       resultado[f.clave] = f.valor;
     }
+    // Fallback al .env (lo que escribió el instalador): misma fuente que el
+    // script standalone del backup nocturno. Una instalación nueva (tabla
+    // config_backup vacía) no puede quedar sin backup por esto, y la pantalla
+    // de Configuración muestra lo que realmente se va a usar.
+    for (const clave of CLAVES_CONFIG) {
+      if (!resultado[clave]) {
+        const envValor = this.configService.get<string>(clave);
+        if (envValor) resultado[clave] = envValor;
+      }
+    }
     return resultado;
   }
 
@@ -103,9 +113,11 @@ export class BackupGestor {
     // Validar que BACKUP_DIR_LOCAL sea obligatorio si se está seteando.
     const tieneLocal = entradas.find(([k]) => k === 'BACKUP_DIR_LOCAL');
     if (!tieneLocal) {
-      // Si ya existe un valor guardado, ok. Si no, rechazar.
+      // Si ya existe un valor guardado, ok. Si no, aceptar solo si el .env lo
+      // tiene (fallback igual que obtenerConfig) — si no, rechazar.
       const actual = await this.configRepo.findOneBy({ clave: 'BACKUP_DIR_LOCAL' });
-      if (!actual) {
+      const envLocal = this.configService.get<string>('BACKUP_DIR_LOCAL');
+      if (!actual && !envLocal) {
         throw new ConflictException('BACKUP_DIR_LOCAL es obligatorio');
       }
     }

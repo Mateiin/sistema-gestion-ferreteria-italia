@@ -4,7 +4,13 @@ Este archivo le da contexto a Claude para trabajar en este proyecto. Leelo al
 inicio de cada sesión. Manténganlo actualizado: un CLAUDE.md viejo manda a
 construir sobre supuestos que ya no valen.
 
-> Última actualización: logo real del emisor integrado en los PDF
+> Última actualización: actualizaciones por **zip chico + delta por hash**
+> (`installer/crear-actualizacion.ps1` arma `ActualizacionFerreteria.zip`,
+> ~1MB con solo dist/public/plantillas; en la PC del local se aplica
+> arrastrando el zip sobre `aplicar-actualizacion.bat`, que copia solo los
+> archivos que difieren por SHA-256 — instalador completo solo para
+> instalaciones nuevas o cuando cambian deps). Probado de punta a punta en
+> dev. Antes: logo real del emisor integrado en los PDF
 > (factura/NC/presupuesto, `fit: [110, 45]` en `formato-arca.ts` — ancho Y
 > alto máximos, mantiene proporción, con fallback a texto verificado de
 > nuevo) y embebido en el instalador (`installer/assets/logo-ferreteria.png`,
@@ -20,9 +26,9 @@ construir sobre supuestos que ya no valen.
 > los servidores de ARCA (`dh key too small`, fix: `useHttpsAgent: true` en
 > `@arcasdk/core`, afecta homologación y producción por igual). El salto de
 > verdad a `ARCA_AMBIENTE=produccion` en el `.env` real sigue sin hacerse,
-> a propósito — ver "Despliegue" → Fase 3. Próximo: probar el instalador en
-> una PC real, hacer el salto a producción cuando el titular confirme, y
-> sistema del depósito.
+> a propósito — ver "Despliegue" → Fase 3. Próximo: probar el instalador y el
+> aplicador de actualizaciones en una PC real, hacer el salto a producción
+> cuando el titular confirme, y sistema del depósito.
 
 ---
 
@@ -655,6 +661,38 @@ interactivo, UAC), ni el comportamiento real de `abrir-ferreteria.vbs`
 abriendo Edge. Falta probarlo en una PC (o VM) Windows real antes de
 confiar en esto para la PC del local — ver `docs/INSTALACION.md`.
 
+### Actualizaciones: zip chico + delta por hash (hecho)
+
+Actualizar no debería mover los ~400MB del instalador: casi ninguna
+actualización toca `node_modules` (200MB), Node embebido ni Postgres — solo
+cambia `dist/` (~0,3MB) y `public/` (~0,4MB). Por eso el camino normal de
+actualización es:
+
+- **`installer/crear-actualizacion.ps1`** (PC de desarrollo, no hace falta
+  Inno Setup): arma `Output/ActualizacionFerreteria.zip` (~1MB) con la capa
+  de código (dist/, public/, plantillas/.bat, scripts/backup.ts) + un
+  `MANIFEST.json` con ruta/sha256/tamaño por archivo. Mismo guard que el
+  `.iss`: sin `dist/main.js` o `public/index.html` aborta.
+- **`installer/plantillas/aplicar-actualizacion.bat`** (instalado en
+  `C:\Ferreteria\`): se arrastra el zip encima (o se pasa como argumento),
+  pide UAC, y corre `_instalador\aplicar-actualizacion.ps1`, que frena el
+  servicio NSSM, copia SOLO los archivos que difieren de lo instalado
+  (compara SHA-256), levanta el servicio y loguea todo en
+  `C:\Ferreteria\actualizaciones.log`. Si el paquete actualiza
+  `registrar-tarea-backup.ps1`, re-registra la tarea del backup.
+  `aplicar-actualizacion.bat` no se incluye en el zip a propósito: el `.bat`
+  que está corriendo no puede reemplazarse a sí mismo (cmd lo lee por líneas)
+  — si el `.bat` cambia, se entrega con el instalador completo.
+- **Cuándo NO alcanza el zip**: si la actualización agrega dependencias
+  (`package.json` nuevo que requiera `npm install`), usar `FerreteriaSetup.exe`
+  completo, que sí lleva `node_modules`.
+
+Probado en dev de punta a punta (sin servicio): zip 360KB/141 archivos,
+aplicación a un directorio de prueba (todo nuevo → re-aplicar saltea 141 →
+modificar 2 archivos actualiza solo esos 2) y re-registración de la tarea
+cuando cambia el ps1. Falta la prueba real en la PC del local (UAC +
+servicio NSSM) junto con el resto del instalador.
+
 ### Fase 3 — Salto a ARCA producción (PENDIENTE)
 Todavía en homologación a propósito. Falta, en este orden: datos legales
 reales del emisor en el `.env` (domicilio, IIBB, inicio de actividades —
@@ -677,12 +715,19 @@ se pierde el sistema). Stock y precios el suegro los tiene de memoria.
 
 **Implementado y standalone**: no depende de que el backend esté corriendo
 (conexión propia a Postgres vía `pg`, sin pasar por los Gestores de la app —
-tiene que poder correr aunque la app esté caída) ni de un docker-compose (no
-existe todavía en este proyecto). Se corre a mano por ahora
-(`npm run backup` desde `sistema-local/backend/`); la programación horaria
-(cron / tarea programada / contenedor en un futuro Compose) queda pendiente
-para el despliegue en la PC del local. Detalle completo, variables de
-entorno y **procedimiento de restore** en
+tiene que poder correr aunque la app esté caída). En la PC del local lo corre
+la **tarea programada de Windows directamente** (ver "Despliegue" → Fase 2:
+`ejecutar-backup.bat` con el Node embebido + `tsx`, sin pasar por el API ni
+por `.ps1` — un `.ps1` se traga los errores con exit 0 y la execution policy
+de Windows lo puede bloquear; un `.bat` que corre `backup.ts` directo no tiene
+ninguna de las dos trampas). La config de destinos se lee de la tabla
+`config_backup` (la de la pantalla de Configuración) con **fallback al
+`.env`**, así que una instalación nueva anda sin configurar nada a mano. Cada
+corrida registra su resultado en `ejecuciones_backup` (la misma tabla que lee
+el historial y la alerta del frontend) y sale con exit code != 0 si el dump o
+los CSVs fallan, para que la tarea reintente y el fallo no sea silencioso. A
+mano sigue andando con `npm run backup` desde `sistema-local/backend/`.
+Detalle completo, variables de entorno y **procedimiento de restore** en
 `sistema-local/backend/scripts/README-backup.md`.
 
 Genera, con **fecha en el nombre** (nunca sobrescribe):
@@ -814,6 +859,16 @@ Hecho:
       una PC Windows real** (sandbox sin admin/GUI) — pendiente antes de
       confiar en esto para la PC del local. Detalle completo en
       "Despliegue" → Fase 2.
+- [x] **Actualizaciones por zip chico + delta por hash**
+      (`installer/crear-actualizacion.ps1` + `plantillas/aplicar-actualizacion.bat`/`.ps1`):
+      paquete de ~1MB con la capa de código (dist/public/plantillas, sin
+      node_modules) aplicado por diferencia de SHA-256 contra lo instalado —
+      no hace falta mover los ~400MB del instalador para actualizar. El
+      instalador se actualizó para dejar el aplicador instalado. Probado en
+      dev de punta a punta (zip 360KB/141 archivos, delta saltea sin cambios,
+      re-registra la tarea de backup). Falta la prueba real en la PC del
+      local (UAC + servicio NSSM). Detalle completo en "Despliegue" →
+      "Actualizaciones" y `docs/INSTALACION.md` → "Cómo se actualiza".
 - [x] **Verificación de solo lectura para ARCA producción**
       (`scripts/verificar-produccion.ts`, `npm run verificar:prod`): config
       separada en `.env.produccion` (nunca el `.env` de desarrollo),

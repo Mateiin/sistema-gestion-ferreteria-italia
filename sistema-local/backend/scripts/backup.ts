@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import * as fs from 'node:fs';
@@ -8,20 +9,28 @@ import { Client, types } from 'pg';
 /**
  * Backup standalone del sistema local: NO depende de que la app esté
  * corriendo (conexión propia a Postgres, sin pasar por los Gestores del
- * backend) ni de un docker-compose (no existe todavía — corre a mano hasta
- * que se cablee un cron/tarea programada en el despliegue). Ver
+ * backend). Es el que corre la TAREA PROGRAMADA del backup en la PC del
+ * local (ver `plantillas/ejecutar-backup.bat`): mientras Postgres esté
+ * arriba, el backup se hace aunque el servicio del backend esté caído. Ver
  * `scripts/README-backup.md` para el procedimiento de restore.
+ *
+ * Config de destinos: se lee de la tabla `config_backup` de la DB (la misma
+ * que edita la pantalla de Configuración del sistema) con FALLBACK al .env
+ * que escribió el instalador — una instalación nueva anda directo sin que
+ * nadie configure nada a mano.
  *
  * Genera, con fecha en el nombre (nunca sobrescribe):
  *   dump_AAAA-MM-DD.sql, saldos_AAAA-MM-DD.csv, fichas_abiertas_AAAA-MM-DD.csv,
  *   clientes_AAAA-MM-DD.csv, caja_AAAA-MM-DD.csv
- * a BACKUP_DIR_LOCAL (obligatorio) y copia esos mismos archivos al pendrive
- * (resuelto por BACKUP_PENDRIVE_LABEL, la etiqueta del volumen -- o por
+ * a BACKUP_DIR_LOCAL (obligatorio) y copia esa carpeta al pendrive (resuelto
+ * por BACKUP_PENDRIVE_LABEL, la etiqueta del volumen -- o por
  * BACKUP_DIR_PENDRIVE, una ruta fija, como fallback viejo) y a
  * BACKUP_DIR_DRIVE (opcionales, tolerantes a fallo). También escribe
  * BACKUP_DIR_LOCAL/estado-backup.json con la fecha del último backup
- * EXITOSO por destino, para que un fallo no quede silencioso en un log que
- * nadie lee (lo consume GET /api/backup/estado del backend).
+ * EXITOSO por destino, registra cada ejecución en la tabla
+ * `ejecuciones_backup` (la misma que lee la pantalla de historial/estado del
+ * frontend) y sale con exit code != 0 si el dump o los CSVs fallan, para que
+ * la tarea programada reintente y el fallo no quede silencioso.
  */
 
 const execFileAsync = promisify(execFile);
@@ -113,6 +122,36 @@ function leerConfigDb(): ConfigDb {
     password: process.env.DB_PASSWORD ?? 'postgres',
     database: process.env.DB_NAME ?? 'ferreteria_local',
   };
+}
+
+// ---------------------------------------------------------------------------
+// Config de destinos desde la DB (config_backup): misma fuente que la
+// pantalla de Configuración del frontend. Se usa como OVERRIDE del .env — la
+// DB manda si está seteada; si no, se cae a los valores que escribió el
+// instalador. Si la tabla no existe (DB vieja) o el rol no puede leerla, no
+// es fatal: se sigue con el .env.
+// ---------------------------------------------------------------------------
+
+interface ConfigBackupDb {
+  BACKUP_DIR_LOCAL?: string;
+  BACKUP_DIR_PENDRIVE?: string;
+  BACKUP_DIR_DRIVE?: string;
+}
+
+async function leerConfigBackupDb(client: Client): Promise<ConfigBackupDb> {
+  try {
+    const { rows } = await client.query('SELECT clave, valor FROM config_backup');
+    const resultado: ConfigBackupDb = {};
+    for (const fila of rows) {
+      const clave = fila.clave as keyof ConfigBackupDb;
+      if (clave === 'BACKUP_DIR_LOCAL' || clave === 'BACKUP_DIR_PENDRIVE' || clave === 'BACKUP_DIR_DRIVE') {
+        resultado[clave] = fila.valor;
+      }
+    }
+    return resultado;
+  } catch {
+    return {};
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -349,9 +388,8 @@ async function resolverLetraPorEtiqueta(etiqueta: string): Promise<string | null
   }
 }
 
-async function resolverDirPendrive(): Promise<string | undefined> {
+async function resolverDirPendrive(rutaFija: string | undefined): Promise<string | undefined> {
   const etiqueta = process.env.BACKUP_PENDRIVE_LABEL;
-  const rutaFija = process.env.BACKUP_DIR_PENDRIVE;
 
   if (etiqueta) {
     const letra = await resolverLetraPorEtiqueta(etiqueta);
@@ -469,9 +507,27 @@ async function main(): Promise<void> {
   const sufijoFechaHora = `${hoyStr}_${hh}.${mm}.${ss}`;
   const carpetaEjecucion = `backup_${sufijoFechaHora}`;
 
-  const dirLocal = process.env.BACKUP_DIR_LOCAL;
+  const config = leerConfigDb();
+
+  // Una sola conexión: sirve para leer la config de destinos (tabla
+  // config_backup, la misma que edita la pantalla de Configuración) y para
+  // generar los CSVs. Si la DB está caída, el backup falla igual (pg_dump
+  // también la necesita) — pero se loguea claro y con exit code != 0.
+  const client = new Client(config);
+  let conexionOk = false;
+  let configDb: ConfigBackupDb = {};
+  try {
+    await client.connect();
+    conexionOk = true;
+    configDb = await leerConfigBackupDb(client);
+  } catch (err) {
+    log('WARNING', `No se pudo conectar a Postgres (se usan los valores del .env): ${(err as Error).message}`);
+  }
+
+  const dirLocal = configDb.BACKUP_DIR_LOCAL || process.env.BACKUP_DIR_LOCAL;
   if (!dirLocal) {
-    console.error('BACKUP_DIR_LOCAL no está definida (es obligatoria). Revisá el .env — ver .env.example.');
+    console.error('BACKUP_DIR_LOCAL no está configurada (ni en la DB ni en el .env — es obligatoria). Revisá la pantalla de Configuración de backup.');
+    if (conexionOk) await client.end();
     process.exitCode = 1;
     return;
   }
@@ -481,8 +537,6 @@ async function main(): Promise<void> {
   fs.mkdirSync(dirDestinoLocal, { recursive: true });
 
   log('INFO', `Backup del ${hoyStr} — iniciando (carpeta: ${carpetaEjecucion})`);
-
-  const config = leerConfigDb();
 
   // 1) Dump completo.
   const rutaDump = path.join(dirDestinoLocal, `dump_${hoyStr}.sql`);
@@ -495,26 +549,29 @@ async function main(): Promise<void> {
   const rutaCaja = path.join(dirDestinoLocal, `caja_${hoyStr}.csv`);
 
   let csvsOk = true;
-  const client = new Client(config);
-  try {
-    await client.connect();
-    const filasSaldos = await generarSaldosCsv(client, rutaSaldos);
-    log('INFO', `saldos_${hoy}.csv generado (${filasSaldos} cliente(s) con saldo pendiente)`);
-    const filasFichas = await generarFichasAbiertasCsv(client, rutaFichas);
-    log('INFO', `fichas_abiertas_${hoy}.csv generado (${filasFichas} línea(s))`);
-    const filasClientes = await generarClientesCsv(client, rutaClientes);
-    log('INFO', `clientes_${hoy}.csv generado (${filasClientes} cliente(s))`);
-    const filasCaja = await generarCajaCsv(client, rutaCaja);
-    log('INFO', `caja_${hoy}.csv generado (${filasCaja} fila(s))`);
-  } catch (err) {
+  if (!conexionOk) {
     csvsOk = false;
-    log('ERROR', `Falló la generación de algún CSV: ${(err as Error).message}`);
-  } finally {
-    await client.end();
+    log('ERROR', 'Sin conexión a Postgres no se pueden generar los CSVs');
+  } else {
+    try {
+      const filasSaldos = await generarSaldosCsv(client, rutaSaldos);
+      log('INFO', `saldos_${hoyStr}.csv generado (${filasSaldos} cliente(s) con saldo pendiente)`);
+      const filasFichas = await generarFichasAbiertasCsv(client, rutaFichas);
+      log('INFO', `fichas_abiertas_${hoyStr}.csv generado (${filasFichas} línea(s))`);
+      const filasClientes = await generarClientesCsv(client, rutaClientes);
+      log('INFO', `clientes_${hoyStr}.csv generado (${filasClientes} cliente(s))`);
+      const filasCaja = await generarCajaCsv(client, rutaCaja);
+      log('INFO', `caja_${hoyStr}.csv generado (${filasCaja} fila(s))`);
+    } catch (err) {
+      csvsOk = false;
+      log('ERROR', `Falló la generación de algún CSV: ${(err as Error).message}`);
+    }
   }
 
-  // 3) Destinos — copiar la carpeta entera.
-  const dirPendrive = await resolverDirPendrive();
+  // 3) Destinos — copiar la carpeta entera. La config sale de la DB si está
+  // (config_backup), con fallback al .env.
+  const dirPendrive = await resolverDirPendrive(configDb.BACKUP_DIR_PENDRIVE || process.env.BACKUP_DIR_PENDRIVE);
+  const dirDrive = configDb.BACKUP_DIR_DRIVE || process.env.BACKUP_DIR_DRIVE;
   const copiarCarpeta = (nombre: string, dirDestino: string | undefined): ResultadoDestino => {
     if (!dirDestino) return { nombre, estado: 'omitido', detalle: 'no configurado' };
     try {
@@ -533,7 +590,7 @@ async function main(): Promise<void> {
   const resultados: ResultadoDestino[] = [
     { nombre: 'LOCAL', estado: resultadoDump.ok && csvsOk ? 'ok' : 'error' },
     copiarCarpeta('PENDRIVE', dirPendrive),
-    copiarCarpeta('DRIVE', process.env.BACKUP_DIR_DRIVE),
+    copiarCarpeta('DRIVE', dirDrive),
   ];
 
   for (const r of resultados) {
@@ -542,17 +599,15 @@ async function main(): Promise<void> {
     else log('WARNING', `Destino ${r.nombre}: FALLÓ — ${r.detalle}`);
   }
 
-  // 3b) Estado persistido — ver "Estado del backup" arriba: esto es lo que
-  // lee el backend para poder avisar en el frontend si hace días que no hay
-  // copia externa, en vez de que quede solo como un WARNING en este log.
+  // 3b) Estado persistido — ver "Estado del backup" arriba.
   const estadoPrevio = leerEstadoPrevio(path.join(dirLocal, NOMBRE_ARCHIVO_ESTADO));
-  guardarEstado(dirLocal, actualizarEstado(estadoPrevio, resultados, hoy));
+  guardarEstado(dirLocal, actualizarEstado(estadoPrevio, resultados, hoyStr));
 
   // 4) Retención — solo en destinos donde el backup de HOY quedó OK.
   const dirPorDestino: Record<string, string | undefined> = {
     LOCAL: dirLocal,
     PENDRIVE: dirPendrive,
-    DRIVE: process.env.BACKUP_DIR_DRIVE,
+    DRIVE: dirDrive,
   };
   const patronCarpeta = /^backup_(\d{4}-\d{2}-\d{2})_\d{2}\.\d{2}\.\d{2}$/;
   for (const r of resultados) {
@@ -580,9 +635,48 @@ async function main(): Promise<void> {
   }
 
   const huboErrorCritico = !resultadoDump.ok || !csvsOk;
-  log(huboErrorCritico ? 'ERROR' : 'INFO', `Backup del ${hoy} finalizado ${huboErrorCritico ? 'CON ERRORES' : 'OK'}`);
+  log(huboErrorCritico ? 'ERROR' : 'INFO', `Backup del ${hoyStr} finalizado ${huboErrorCritico ? 'CON ERRORES' : 'OK'}`);
 
   fs.appendFileSync(path.join(dirLocal, 'backup.log'), logs.join('\n') + '\n');
+
+  // 5) Registrar la ejecución en la DB (la misma tabla que lee la pantalla de
+  // historial/estado del frontend), para que el backup nocturno quede visible
+  // igual que el manual del botón "Ejecutar". No es crítico: si falla, solo se
+  // avisa (el backup ya quedó en disco y en backup.log).
+  if (conexionOk) {
+    try {
+      const local = resultados.find((r) => r.nombre === 'LOCAL')!;
+      const pendrive = resultados.find((r) => r.nombre === 'PENDRIVE')!;
+      const drive = resultados.find((r) => r.nombre === 'DRIVE')!;
+      await client.query(
+        `INSERT INTO ejecuciones_backup
+           ("id", "fechaInicio", "fechaFin", "exitoLocal", "exitoPendrive", "exitoDrive",
+            "omitidoPendrive", "omitidoDrive", "detalleLocal", "detallePendrive", "detalleDrive",
+            "exitoGlobal", "bytesDump", "log")
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+        [
+          randomUUID(),
+          hoy,
+          new Date(),
+          local.estado === 'ok',
+          pendrive.estado === 'ok',
+          drive.estado === 'ok',
+          pendrive.estado === 'omitido',
+          drive.estado === 'omitido',
+          local.estado === 'ok' ? null : 'dump o CSVs con errores',
+          pendrive.detalle ?? null,
+          drive.detalle ?? null,
+          !huboErrorCritico && local.estado === 'ok',
+          resultadoDump.tamanioBytes > 0 ? resultadoDump.tamanioBytes : null,
+          logs.join('\n'),
+        ],
+      );
+    } catch (err) {
+      log('WARNING', `No se pudo registrar la ejecución en la DB: ${(err as Error).message}`);
+    }
+  }
+
+  if (conexionOk) await client.end();
 
   if (huboErrorCritico) process.exitCode = 1;
 }

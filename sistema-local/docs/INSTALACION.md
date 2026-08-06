@@ -339,9 +339,44 @@ referencia para detectar un archivo distinto en un re-download futuro.
    ```
    El resultado queda en `sistema-local/installer/Output/FerreteriaSetup.exe`.
 
-Ese `.exe` es lo único que hace falta copiar a la PC del local — ya tiene
-todo adentro (Node, y si conseguiste el instalador de Postgres y NSSM,
-también esos).
+Ese `.exe` es lo único que hace falta copiar a la PC del local para una
+**instalación nueva** — ya tiene todo adentro (Node, y si conseguiste el
+instalador de Postgres y NSSM, también esos). Para las **actualizaciones** de
+una PC ya instalada no hace falta este `.exe`: alcanza con el zip de la
+sección "Cómo se actualiza el sistema" de más abajo.
+
+### Cómo se actualiza el sistema (camino rápido)
+
+Una actualización casi nunca toca dependencias (`node_modules`), Node,
+Postgres ni NSSM — solo cambia `dist/` (backend compilado) y `public/`
+(frontend). Por eso para actualizar no hace falta mover los ~400MB de
+`FerreteriaSetup.exe`: existe un paquete chico que solo lleva esa capa de
+código.
+
+1. **Armar el paquete** desde `sistema-local/installer/` (después de correr
+   `npm run build:prod` en `sistema-local/backend/`):
+   ```
+   powershell -File sistema-local\installer\crear-actualizacion.ps1
+   ```
+   El resultado es
+   `sistema-local/installer/Output/ActualizacionFerreteria.zip`
+   (~1 MB, sin node_modules). No hace falta Inno Setup para esto.
+
+2. **Copiar el zip** a la PC del local (pendrive) — es lo único que viaja.
+
+3. **Aplicarlo**: arrastrar el zip encima de
+   `C:\Ferreteria\aplicar-actualizacion.bat` (o pasarlo como argumento). Pide
+   permisos de administrador (UAC, igual que el instalador), frena el
+   servicio del backend, copia SOLO los archivos que cambiaron (compara
+   SHA-256 contra lo instalado, en vez de sobreescribir todo), levanta el
+   servicio y deja el detalle en `C:\Ferreteria\actualizaciones.log`. Si el
+   paquete actualiza `registrar-tarea-backup.ps1`, también re-registra la
+   tarea del backup.
+
+**Cuándo NO alcanza el zip**: si la actualización agrega dependencias nuevas
+(un cambio de `package.json` que requiera `npm install`), usar el instalador
+completo (`FerreteriaSetup.exe`), que sí lleva `node_modules`. Es el caso
+raro — la gran mayoría de las actualizaciones se resuelven con el zip.
 
 #### Por qué un script wrapper y no `ISCC.exe` directo
 

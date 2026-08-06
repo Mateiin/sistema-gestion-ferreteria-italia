@@ -27,10 +27,12 @@ Variables de entorno relevantes (además de las `DB_*` que ya usa la app):
 El instalador (`installer/ferreteria.iss`) pide `BACKUP_DIR_LOCAL` (obligatorio)
 y `BACKUP_PENDRIVE_LABEL`/`BACKUP_DIR_DRIVE` (opcionales) en una página del
 wizard y los escribe directo al `.env` — no hace falta tocar nada a mano en
-una instalación nueva. Los tres se pueden cambiar después editando el `.env`
-en la carpeta de instalación, sin reinstalar (el backend no necesita
-reiniciarse: el script de backup lee el `.env` en cada corrida, no al
-arrancar el servicio).
+una instalación nueva. Para cambiarlos después hay dos caminos, ambos sin
+reinstalar: la pantalla **Configuración de backup** del sistema (guarda en la
+tabla `config_backup` de la DB y es la que manda) o, más a mano, editar el
+`.env` en la carpeta de instalación (se usa como fallback si la DB no tiene
+esa clave seteada). El script lee la config en cada corrida, no al arrancar
+el servicio.
 
 ## Tarea programada (instalación automática)
 
@@ -39,8 +41,8 @@ El instalador `.exe` crea una tarea de Windows con **dos triggers**:
 1. **Diario a las 19:00** — si la PC está prendida, corre ahí.
 2. **Al inicio del sistema** (con 10 minutos de delay) — si la PC estaba
    apagada a las 19:00, corre cuando se prende al otro día. El delay da
-   tiempo a que el servicio NSSM del backend y la base de datos arranquen
-   primero.
+   tiempo a que la base de datos arranque (el backup corre directo contra
+   Postgres; no depende del servicio del backend).
 
 Si la PC está apagada varios días, cada vez que se prende corre el backup
 del día (uno solo — no acumula los días que faltan, porque `backup.ts` usa
@@ -79,22 +81,28 @@ borra nada ahí — un fallo repetido no te puede dejar sin ninguna copia). El
 resultado de cada corrida (qué se generó, qué destino falló, cuántos archivos
 se retuvieron/borraron) queda en `BACKUP_DIR_LOCAL/backup.log`.
 
-## Que un fallo no quede silencioso: `estado-backup.json`
+## Que un fallo no quede silencioso
 
 `backup.log` es detallado pero nadie lo lee todos los días — un pendrive
-desconectado quedaba como un WARNING ahí y el script igual terminaba con
-exit 0 ("backup solo local", que no protege del escenario principal: que se
-muera el disco de la PC). Por eso, además del log, cada corrida actualiza
-`BACKUP_DIR_LOCAL/estado-backup.json` con la fecha del **último backup
-EXITOSO por destino** (LOCAL/PENDRIVE/DRIVE) — no solo del último intento.
+desconectado quedaba como un WARNING ahí y un backup degradado a "solo
+local" no protege del escenario principal (que se muera el disco de la PC).
+Por eso cada corrida:
 
-El backend expone `GET /api/backup/estado` (`BackupGestor`, en
-`src/backup/`) leyendo ese mismo archivo, y el frontend muestra un aviso
-discreto en la barra superior (`layout/backup-alerta/`) si hace más de 3
+- Termina con **exit code != 0** si el dump o los CSVs fallan → la tarea
+  programada de Windows reintenta (`RestartCount`/`StartWhenAvailable`) y el
+  fallo queda registrado, no pasa en silencio.
+- **Registra la ejecución en la tabla `ejecuciones_backup`** de la DB (la
+  misma que lee la pantalla de historial y la alerta del frontend), con el
+  resultado por destino (LOCAL/PENDRIVE/DRIVE) y el log completo.
+- Actualiza `BACKUP_DIR_LOCAL/estado-backup.json` con la fecha del **último
+  backup EXITOSO por destino** — histórico, para diagnóstico rápido.
+
+El frontend muestra un aviso discreto en la barra superior si hace más de 3
 días que no hay una copia exitosa en **ningún destino externo** (pendrive o
-Drive) — el backup local solo no cuenta para esta alerta, a propósito. No
-aparece nada si el backup externo está al día, ni si el archivo de estado
-todavía no existe con algo distinto de "nunca hubo" (primera corrida).
+Drive) — el backup local solo no cuenta para esta alerta, a propósito. La
+alerta la sirve `GET /api/backup/estado` del backend, que lee
+`ejecuciones_backup` (por eso el backup nocturno también queda registrado
+ahí, aunque no pase por el API).
 
 ## RESTORE — procedimiento paso a paso
 
