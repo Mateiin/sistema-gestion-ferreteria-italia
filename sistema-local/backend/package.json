@@ -19,7 +19,11 @@
     "migration:create": "tsx ./node_modules/typeorm/cli.js migration:create",
     "migration:generate": "tsx ./node_modules/typeorm/cli.js migration:generate -d src/data-source.ts",
     "migration:run": "tsx ./node_modules/typeorm/cli.js migration:run -d src/data-source.ts",
-    "migration:revert": "tsx ./node_modules/typeorm/cli.js migration:revert -d src/data-source.ts"
+    "migration:revert": "tsx ./node_modules/typeorm/cli.js migration:revert -d src/data-source.ts",
+    "test": "jest --config jest.config.ts",
+    "test:watch": "jest --watch",
+    "test:cov": "jest --coverage",
+    "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
     "@arcasdk/core": "2.0.0",
@@ -41,9 +45,17 @@
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.24",
+    "@nestjs/testing": "^11.2.1",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/jest": "^30.0.0",
     "@types/node": "^26.1.1",
     "@types/pg": "^8.20.0",
     "@types/qrcode": "1.5.6",
+    "@types/supertest": "^7.2.1",
+    "better-sqlite3": "^12.11.1",
+    "jest": "^30.4.2",
+    "supertest": "^7.2.2",
+    "ts-jest": "^29.4.12",
     "tsx": "^4.23.0",
     "typescript": "^6.0.3"
   }
